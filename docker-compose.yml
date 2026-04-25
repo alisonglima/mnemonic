@@ -13,12 +13,32 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - qdrant
-      - ollama
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     command: ["python", "-m", "mcp_memory.main", "--host", "0.0.0.0", "--port", "8080", "--serve"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "mcp_memory.health_check", "/data/memory.db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   qdrant:
     image: qdrant/qdrant:v1.13.2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   ollama:
     image: ollama/ollama:0.6.8
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

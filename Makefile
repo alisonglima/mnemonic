@@ -3,7 +3,7 @@
 #
 # Usage: make <target>
 
-.PHONY: setup test run docker-up docker-down reindex backup lint format help
+.PHONY: setup test run docker-up docker-down reindex backup restore lint format help
 
 # Detect sed -i flavour: GNU uses "-i", BSD/macOS uses "-i ''"
 SED_I := $(shell sed --version 2>/dev/null | grep -q GNU && echo "-i" || echo "-i ''")
@@ -48,6 +48,9 @@ reindex: ## Rebuild all indexes (Qdrant + Obsidian)
 
 backup: ## Backup SQLite database
 	PYTHONPATH=$(SRC) $(PYTHON) $(SCRIPTS)/backup_sqlite.py
+
+restore: ## Restore SQLite database from backup
+	PYTHONPATH=$(SRC) $(PYTHON) $(SCRIPTS)/restore_sqlite.py
 
 # ── Quality (lightweight, no extra dependencies) ───────────────────────
 lint: ## Syntax-check Python files (py_compile only — no style/lint rules)
