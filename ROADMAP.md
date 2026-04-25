@@ -29,9 +29,9 @@
 | Public issue and PR hygiene | Implemented | Issue templates and PR template in `.github/` |
 | Stable README, license, and governance files | Implemented | `README.md`, `LICENSE`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CONTRIBUTING.md` |
 | Improved MCP client integration guides | Implemented | Per-client guides in `docs/guides/mcp-clients/` |
-| Reliable Docker Compose with health checks | Planned | Phase 2 of improve-roadmap-readiness |
-| Verified backup and restore tooling | Partial | Backup implemented; restore planned in Phase 2 |
-| Batch MCP operations and advanced queries | Planned | Phase 3 of improve-roadmap-readiness |
-| Improved vector projection quality | Partial | Deterministic hash active; Ollama path planned in Phase 4 |
-| Enhanced Obsidian vault projection | Planned | Phase 4 of improve-roadmap-readiness |
-| Expanded configuration options | Planned | Phase 4 of improve-roadmap-readiness |
+| Reliable Docker Compose with health checks | Implemented | Docker health checks for all services (Phase 2) |
+| Verified backup and restore tooling | Implemented | backup + restore scripts with PRAGMA integrity_check (Phase 2) |
+| Batch MCP operations and advanced queries | Implemented | batch_write, batch_update_tags, extended search (Phase 3) |
+| Improved vector projection quality | Implemented | Ollama embeddings with hash fallback (Phase 4) |
+| Enhanced Obsidian vault projection | Implemented | Rich frontmatter, status subdirs (Phase 4) |
+| Expanded configuration options | Implemented | embedding_strategy, retention, namespace config (Phase 4) |
