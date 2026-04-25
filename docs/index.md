@@ -34,7 +34,7 @@ Mnemonic exposes 12 tools over HTTP via FastMCP:
 | Command | Description |
 |---|---|
 | `make setup` | Install dependencies (editable mode) |
-| `make test` | Run unit test suite (22 tests) |
+| `make test` | Run unit test suite (26 tests) |
 | `make run` | Start MCP server on `127.0.0.1:8080` |
 | `make docker-up` | Start all services via docker compose |
 | `make docker-down` | Stop docker compose services |
