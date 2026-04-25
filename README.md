@@ -95,7 +95,7 @@ Server starts on `127.0.0.1:8080` by default. By default, Mnemonic runs in SQLit
 make test
 ```
 
-Runs the test suite via pytest (22 tests). Passing tests confirm the core memory model and MCP tools are wired correctly.
+Runs the test suite via pytest (26 tests). Passing tests confirm the core memory model and MCP tools are wired correctly.
 
 ---
 
@@ -138,7 +138,7 @@ For the full Docker Compose stack, the Mnemonic container already uses the inter
 | [Docker install](docs/installation/docker.md) | Run with Docker Compose |
 | [Local development](docs/installation/local-dev.md) | Run directly on your machine |
 | [Configuration](docs/installation/configuration.md) | Environment variable reference |
-| [MCP clients](docs/guides/mcp-clients.md) | Connect any MCP-compatible client |
+| [MCP clients](docs/guides/mcp-clients/index.md) | Connect any MCP-compatible client |
 | [Architecture](docs/architecture/overview.md) | System design overview |
 | [Troubleshooting](docs/reference/troubleshooting.md) | Common issues and solutions |
 

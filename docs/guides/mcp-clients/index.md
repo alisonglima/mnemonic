@@ -2,6 +2,13 @@
 
 Mnemonic exposes an HTTP MCP server. Any MCP-compatible client can connect using the server address and tool names listed below.
 
+## Client setup guides
+
+- [OpenCode](opencode.md) — primary supported client
+- [Claude Code](claude-code.md)
+- [Codex](codex.md)
+- [Other clients](community-clients.md)
+
 ## Server address
 
 ```

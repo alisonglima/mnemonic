@@ -34,7 +34,7 @@ Mnemonic exposes 12 tools over HTTP via FastMCP:
 | Command | Description |
 |---|---|
 | `make setup` | Install dependencies (editable mode) |
-| `make test` | Run unit test suite (22 tests) |
+| `make test` | Run unit test suite (26 tests) |
 | `make run` | Start MCP server on `127.0.0.1:8080` |
 | `make docker-up` | Start all services via docker compose |
 | `make docker-down` | Stop docker compose services |
@@ -59,7 +59,7 @@ Mnemonic exposes 12 tools over HTTP via FastMCP:
 ## Guides
 
 - [Obsidian integration](guides/obsidian.md) — Project journal entries to a local vault
-- [MCP clients](guides/mcp-clients.md) — Connect any MCP-compatible client
+- [MCP clients](guides/mcp-clients/index.md) — Connect any MCP-compatible client
 - [Backups](guides/backups.md) — Back up the SQLite source of truth
 - [Reindexing](guides/reindexing.md) — Rebuild Qdrant and Obsidian indexes
 
