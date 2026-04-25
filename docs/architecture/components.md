@@ -85,7 +85,7 @@ Background worker that processes pending projection events.
 Returns system status for `memory.health`:
 - `sqlite` — SQLite file exists
 - `qdrant` — Qdrant `/healthz` returns 2xx
-- `ollama` — currently reported as `down`; Ollama is configured but not used by runtime logic
+- `ollama` — `up`/`down` based on /api/tags health check when OLLAMA_URL is configured; not used for embeddings/projections yet
 - `worker` — outbox worker status
 - `obsidian_projection` — Obsidian vault path exists
 - `degraded` — true when Qdrant or Obsidian projection is unavailable

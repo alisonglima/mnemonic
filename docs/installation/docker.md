@@ -18,7 +18,7 @@ This builds the MCP server image and starts all three services.
 
 - **MCP server** — `localhost:8080`
 - **Qdrant** — internal only (not exposed to host by default)
-- **Ollama** — internal only (not exposed to host by default), reserved for future local-model workflows
+- **Ollama** — internal only (not exposed to host by default); health-checked when configured
 
 To expose Qdrant's port to the host, add a `ports` entry to the `qdrant` service in `docker-compose.yml`:
 

@@ -24,7 +24,7 @@ Vector projections are **deterministic SHA-256 hash projections** (8-dim). They 
 
 When `QDRANT_URL` is empty or Qdrant is unreachable, the MCP server degrades gracefully to SQLite-only search.
 
-## Ollama (reserved)
+## Ollama health check
 
 `OLLAMA_URL` is configured in the environment but is **not currently used by the runtime logic**. It exists to support future local-model vector workflows. No embedding behavior activates based on this variable today.
 

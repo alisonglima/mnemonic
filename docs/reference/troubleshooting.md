@@ -63,7 +63,7 @@ Check `memory.health` for `pending_events` count and `oldest_pending_age_seconds
 Run with verbose output:
 
 ```bash
-PYTHONPATH=mcp-memory/src python3 -m unittest discover -s mcp-memory/tests -p "test_*.py" -v
+PYTHONPATH=mcp-memory/src python3 -m pytest mcp-memory/tests -q
 ```
 
 If the database file is missing, initialize it first:

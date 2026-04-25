@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import BaseModel, Field
 
-@dataclass
-class Settings:
+
+class Settings(BaseModel):
     database_path: Path
     vault_path: Path
     mcp_port: int = 8080

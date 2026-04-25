@@ -4,7 +4,7 @@ Get Mnemonic running and verified.
 
 ## Prerequisites
 
-- Python >=3.9
+- Python >=3.11
 
 ## Step 0 — Clone the repository
 
@@ -19,7 +19,7 @@ cd mnemonic
 make setup
 ```
 
-This installs `mcp-memory` in editable mode with its dependencies (`fastmcp`, `qdrant-client`).
+This installs `mnemonic-mcp` in editable mode with its dependencies (`fastmcp`, `pydantic>=2`, `qdrant-client`).
 
 ## Step 2 — Configure environment
 
@@ -57,13 +57,7 @@ Starting MCP server on 127.0.0.1:8080
 make test
 ```
 
-Expected output:
-
-```
-Ran 22 tests in <time>
-
-OK
-```
+This runs the pytest test suite. All tests should pass.
 
 If all tests pass, your core memory model and MCP tools are wired correctly. This validates the unit test suite — integration with Qdrant and Obsidian requires those services to be configured.
 

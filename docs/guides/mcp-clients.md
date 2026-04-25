@@ -62,7 +62,7 @@ All three require `expected_version` (integer) for optimistic concurrency. The v
 |---|---|---|
 | `sqlite` | string | `"up"` if SQLite database file exists, `"down"` otherwise |
 | `qdrant` | string | `"up"` if Qdrant is reachable, `"down"` otherwise |
-| `ollama` | string | `"down"` (reserved for future local-model workflows) |
+| `ollama` | string | `"up"` if OLLAMA_URL is configured and /api/tags returns 2xx, `"down"` otherwise |
 | `worker` | string | Always `"up"` in the current health response; it does not perform a live thread check |
 | `obsidian_projection` | string | `"up"` if the Obsidian vault directory exists, `"down"` otherwise |
 | `degraded` | bool | `true` if Qdrant is unavailable or vault is inaccessible |

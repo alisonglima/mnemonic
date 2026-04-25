@@ -9,7 +9,7 @@
 SED_I := $(shell sed --version 2>/dev/null | grep -q GNU && echo "-i" || echo "-i ''")
 
 # ── Paths ──────────────────────────────────────────────────────────────
-PYTHON   := python3
+PYTHON   ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
 PIP      := $(PYTHON) -m pip
 PKG_DIR  := mcp-memory
 SRC      := $(PKG_DIR)/src
@@ -23,10 +23,10 @@ help: ## Show this help
 
 # ── Development ────────────────────────────────────────────────────────
 setup: ## Install dependencies (editable)
-	$(PIP) install -e $(PKG_DIR)
+	$(PIP) install -e "$(PKG_DIR)[dev]"
 
 test: ## Run unit tests
-	PYTHONPATH=$(SRC) $(PYTHON) -m unittest discover -s $(TESTS) -p "test_*.py" -v
+	PYTHONPATH=$(SRC) $(PYTHON) -m pytest $(TESTS) -q
 
 run: ## Start MCP server locally (respects MCP_PORT from .env or env)
 	@if [ -f .env ]; then set -a; . .env; set +a; fi; \

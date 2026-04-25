@@ -2,9 +2,10 @@
 name = "mnemonic-mcp"
 version = "0.1.0"
 description = "Local-first memory infrastructure for AI"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
   "fastmcp",
+  "pydantic>=2",
   "qdrant-client",
 ]
 keywords = ["mcp", "memory", "obsidian", "qdrant", "local-first"]
@@ -13,6 +14,9 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest"]
 
 [build-system]
 requires = ["setuptools>=61"]

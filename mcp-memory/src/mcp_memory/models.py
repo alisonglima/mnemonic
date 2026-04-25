@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -8,8 +8,7 @@ JsonDict = Dict[str, Any]
 JsonList = List[Any]
 
 
-@dataclass
-class MemoryRecord:
+class MemoryRecord(BaseModel):
     id: str
     content: str
     type: str
@@ -19,17 +18,16 @@ class MemoryRecord:
     status: str
     version: int
     content_hash: str
-    idempotency_key: Optional[str]
-    tags: List[str] = field(default_factory=list)
-    notes: List[JsonDict] = field(default_factory=list)
-    metadata: JsonDict = field(default_factory=dict)
+    idempotency_key: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    notes: List[JsonDict] = Field(default_factory=list)
+    metadata: JsonDict = Field(default_factory=dict)
     obsidian_projection: bool = False
     created_at: str = ""
     updated_at: str = ""
 
 
-@dataclass
-class MemoryRevision:
+class MemoryRevision(BaseModel):
     id: str
     memory_id: str
     version: int
@@ -44,8 +42,7 @@ class MemoryRevision:
     change_reason: str
 
 
-@dataclass
-class OutboxEvent:
+class OutboxEvent(BaseModel):
     id: str
     memory_id: str
     event_type: str
@@ -53,19 +50,17 @@ class OutboxEvent:
     payload: JsonDict
     attempt_count: int
     available_at: str
-    processed_at: Optional[str]
-    error: Optional[str]
+    processed_at: Optional[str] = None
+    error: Optional[str] = None
 
 
-@dataclass
-class SearchResult:
+class SearchResult(BaseModel):
     items: List[MemoryRecord]
     search_mode: str
     degraded: bool
 
 
-@dataclass
-class SearchHit:
+class SearchHit(BaseModel):
     id: str
     score: float
     payload: JsonDict

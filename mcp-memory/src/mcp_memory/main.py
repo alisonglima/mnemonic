@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import threading
 
+from fastmcp import FastMCP
 from mcp_memory.config import Settings
 from mcp_memory.database import Database
 from mcp_memory.errors import InvalidRequestError, MemoryError, NotFoundError, VersionConflictError
@@ -10,11 +11,6 @@ from mcp_memory.qdrant_store import QdrantProjectionStore
 from mcp_memory.repository import MemoryRepository
 from mcp_memory.search import SearchService
 from mcp_memory.tools import MemoryTools
-
-try:
-    from fastmcp import FastMCP
-except Exception:  # noqa: BLE001
-    FastMCP = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,10 +39,8 @@ def run_worker(stop_event: threading.Event) -> None:
     tools.worker.run_forever(stop_event)
 
 
-def build_mcp_server() -> object:
+def build_mcp_server() -> FastMCP:
     tools = build_tools()
-    if FastMCP is None:
-        raise RuntimeError("fastmcp not installed")
     mcp = FastMCP("memory")
 
     def safe_call(fn, *args, **kwargs):
@@ -151,7 +145,7 @@ def build_mcp_server() -> object:
 
 def main() -> int:
     args = build_parser().parse_args()
-    if args.serve and FastMCP is not None:
+    if args.serve:
         stop_event = threading.Event()
         worker = threading.Thread(target=run_worker, args=(stop_event,), daemon=True)
         worker.start()

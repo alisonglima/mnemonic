@@ -61,7 +61,7 @@ HTTP Request (memory.health tool)
   └── HealthService.status()
         ├── sqlite: check database file exists and is readable
         ├── qdrant: GET {qdrant_url}/healthz (1s timeout; returns "down" if URL not set or unreachable)
-        ├── ollama: always "down" (reserved for future workflows)
+        ├── ollama: health-checked via /api/tags when OLLAMA_URL is configured; "down" otherwise
         ├── worker: currently hardcoded "up"
         ├── obsidian_projection: check vault path exists
         ├── degraded: true if qdrant unavailable or vault inaccessible

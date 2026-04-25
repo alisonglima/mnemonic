@@ -4,7 +4,7 @@ This guide covers running Mnemonic outside of Docker on your local machine.
 
 ## Prerequisites
 
-- Python >= 3.9
+- Python >= 3.11
 - [`sqlite3`](https://docs.python.org/3/library/sqlite3) (included with Python)
 
 ## Install dependencies
@@ -27,7 +27,7 @@ Default values:
 - `SQLITE_PATH=./data/memory.db`
 - `OBSIDIAN_VAULT=./obsidian-vault`
 - `QDRANT_URL=` _(empty — Qdrant is optional; leave empty for SQLite-only mode)_
-- `OLLAMA_URL=` _(empty — reserved for future local-model workflows, not used by current runtime)_
+- `OLLAMA_URL=` _(empty — health-checked when configured; not used for embeddings or projections in current runtime)_
 
 ## Initialize the database
 
@@ -74,7 +74,7 @@ Qdrant is disabled by default. To enable it:
 make test
 ```
 
-This runs the full unittest suite. All tests should pass.
+This runs the pytest test suite. All tests should pass.
 
 ## Available make targets
 
