@@ -95,7 +95,7 @@ Server starts on `127.0.0.1:8080` by default. By default, Mnemonic runs in SQLit
 make test
 ```
 
-Runs the test suite via pytest (26 tests). Passing tests confirm the core memory model and MCP tools are wired correctly.
+Runs the test suite via pytest. Passing tests confirm the core memory model and MCP tools are wired correctly.
 
 ---
 

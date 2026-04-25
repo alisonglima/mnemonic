@@ -13,8 +13,8 @@ Add to your OpenCode MCP config (typically `~/.config/opencode/config.json` or p
 {
   "mcpServers": {
     "memory": {
-      "type": "http",
-      "url": "http://localhost:8080"
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
     }
   }
 }
@@ -28,7 +28,7 @@ After starting OpenCode in a project, run:
 memory.health
 ```
 
-Expected response (healthy):
+Expected response in SQLite-only mode:
 
 ```json
 {
@@ -37,13 +37,13 @@ Expected response (healthy):
   "ollama": "down",
   "worker": "up",
   "obsidian_projection": "up",
-  "degraded": false,
+  "degraded": true,
   "pending_events": 0,
   "oldest_pending_age_seconds": null
 }
 ```
 
-`qdrant: "down"` and `ollama: "down"` are normal if you are running SQLite-only mode.
+`qdrant: "down"`, `ollama: "down"`, and `degraded: true` are normal if you are running SQLite-only mode. The full Docker Compose stack should report Qdrant and Ollama as `"up"` after dependency healthchecks pass.
 
 ## OpenCode Skill
 
@@ -76,7 +76,7 @@ memory.health()
 | Symptom | Cause | Fix |
 |---|---|---|
 | `connection refused` | Server not running | `make run` or `docker compose up -d` |
-| `not found` on tool call | Wrong server URL | Confirm `url` points to `http://localhost:8080` (or your `MCP_PORT`) |
-| `transport not supported` | Wrong transport type | Use `"type": "http"` not `"sse"` or `"stdio"` |
+| `not found` on tool call | Wrong server URL | Confirm `url` points to `http://localhost:8080/sse` (or your `MCP_PORT`) |
+| `transport not supported` | Wrong transport type | Use `"type": "sse"` not `"stdio"` |
 | `degraded: true` in health | Qdrant or Obsidian vault missing | Normal in SQLite-only mode; start Qdrant if vector search is needed |
 | `version_conflict` error | `expected_version` mismatch | Fetch the record with `memory.get` first, use the returned `version` |

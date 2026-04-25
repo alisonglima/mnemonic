@@ -1,6 +1,6 @@
 ---
 name: using-mnemonic
-description: Use when the user asks you to remember something, save a preference, or when you learn important context that should persist across sessions. Symptoms include "remember that I prefer", "save this preference", or "keep this in mind for next time".
+description: Use when the user asks to remember, save, recall, search, retrieve, forget, delete, or archive persistent context with Mnemonic. Symptoms include "remember that I prefer", "what did we decide", "search memory", "forget this", or "keep this in mind".
 ---
 
 # Using Mnemonic
@@ -9,7 +9,9 @@ description: Use when the user asks you to remember something, save a preference
 
 Mnemonic is a local-first memory infrastructure for AI agents. It provides a persistent, versioned, and searchable memory layer using SQLite (and optionally Qdrant for vector search).
 
-As an AI agent, you must use Mnemonic to store important facts, decisions, user preferences, architectural notes, and any context that should persist across sessions.
+As an AI agent, use Mnemonic to store important facts, decisions, user preferences, architectural notes, and context that should persist across sessions.
+
+Do not store secrets, API keys, passwords, tokens, or sensitive legal/medical/financial/personal data unless the user explicitly asks. If sensitivity is ambiguous, ask first. Do not store ephemeral session-only facts.
 
 ## When to Use
 
@@ -47,7 +49,9 @@ When using `memory.write`, use the `type` parameter to classify the memory. Here
 
 ## Core Pattern
 
-When asked to remember something, **DO NOT** say you don't have persistent storage or suggest adding it to `AGENTS.md` or `CLAUDE.md`. Instead, use the `memory.write` MCP tool.
+When asked to remember something durable and searchable, **DO NOT** say you don't have persistent storage. Use the `memory.write` MCP tool.
+
+Use `AGENTS.md` or `CLAUDE.md` for standing agent instructions or project policy that must be loaded every session. If the user explicitly asks to edit those files, do that instead of memory-only storage.
 
 ### Example: Saving a Preference
 
@@ -56,7 +60,7 @@ When asked to remember something, **DO NOT** say you don't have persistent stora
 **You:** "Saving your preference..."
 [Dispatch `memory.write` tool]
 
-```json
+```js
 memory.write({
   "content": "The user prefers using TypeScript in all their projects.",
   "type": "user-preference",
@@ -72,7 +76,7 @@ memory.write({
 | Excuse | Reality |
 |--------|---------|
 | "I don't have persistent storage between conversations" | You DO have persistent storage via the `memory.write` MCP tool. |
-| "I'll add it to AGENTS.md or CLAUDE.md" | Use `memory.write` instead. Mnemonic is the dedicated memory layer. |
+| "I'll add it to AGENTS.md or CLAUDE.md" | Use `memory.write` for durable searchable memory; use AGENTS/CLAUDE only for standing instructions or when explicitly requested. |
 | "I'll remember that for this session" | The user wants it remembered across sessions. Use `memory.write`. |
 
 ## Quick Reference
@@ -91,7 +95,7 @@ memory.write({
 | Saying "I don't have persistent storage" | Use the `memory.write` tool to save the information. |
 | Suggesting `AGENTS.md` for user preferences | Use `memory.write` with `namespace: "user:preferences"`. |
 | Updating without `expected_version` | Always use `memory.get` first to get the current `version`, then pass it as `expected_version` to `memory.update`. |
-| Worrying about Qdrant/Ollama being "down" | Mnemonic works perfectly fine in SQLite-only mode. Ignore the "down" status for these services in `memory.health`. |
+| Worrying about Qdrant/Ollama being "down" | SQLite-backed memory still works; report degraded vector/semantic search only when relevant. |
 
 ## Red Flags - STOP and Start Over
 

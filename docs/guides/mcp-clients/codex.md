@@ -13,8 +13,8 @@ Add to your Codex MCP configuration (typically `~/.codex/config.json` or a proje
 {
   "mcpServers": {
     "memory": {
-      "type": "http",
-      "url": "http://localhost:8080"
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
     }
   }
 }
