@@ -41,6 +41,12 @@ class MemoryTools:
         limit: int = 5,
         include_archived: bool = False,
         include_retracted: bool = False,
+        offset: int = 0,
+        status: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
     ) -> Dict[str, Any]:
         result = self.search_service.search(
             query=query,
@@ -50,6 +56,12 @@ class MemoryTools:
             limit=limit,
             include_archived=include_archived,
             include_retracted=include_retracted,
+            offset=offset,
+            status=status,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
         return {
             "items": result.items,
@@ -167,6 +179,105 @@ class MemoryTools:
         record = self.repository.append_note(id, note=note, source=source)
         self.worker.process_pending()
         return {"record": record}
+
+    def batch_write(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Write multiple memory records in a batch.
+
+        Args:
+            items: List of memory item dicts with keys: content, type, namespace,
+                   scope_id, source, tags (optional), idempotency_key (optional),
+                   metadata (optional), obsidian_projection (optional)
+
+        Returns:
+            Dict with results list, all_created flag, created_count, failed_count
+        """
+        results = []
+        all_created = True
+        created_count = 0
+        failed_count = 0
+
+        for idx, item in enumerate(items):
+            try:
+                content = item.get("content", "")
+                if not content or not content.strip():
+                    raise ValueError("content is required and must be non-empty")
+
+                result = self.write(
+                    content=content,
+                    type=item["type"],
+                    namespace=item["namespace"],
+                    scope_id=item["scope_id"],
+                    source=item["source"],
+                    tags=item.get("tags"),
+                    idempotency_key=item.get("idempotency_key"),
+                    metadata=item.get("metadata"),
+                    obsidian_projection=item.get("obsidian_projection", False),
+                )
+                record = result.get("record")
+                if result.get("created"):
+                    created_count += 1
+                    results.append({"index": idx, "id": record.id if record else None, "created": True, "error": None})
+                else:
+                    all_created = False
+                    results.append({"index": idx, "id": record.id if record else None, "created": False, "error": None})
+            except Exception as exc:
+                all_created = False
+                failed_count += 1
+                results.append({"index": idx, "id": None, "error": str(exc)})
+
+        return {
+            "results": results,
+            "all_created": all_created,
+            "created_count": created_count,
+            "failed_count": failed_count,
+        }
+
+    def batch_update_tags(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Update tags on multiple memory records in a batch.
+
+        Args:
+            updates: List of update dicts with keys: id, add_tags (optional),
+                     remove_tags (optional)
+
+        Returns:
+            Dict with results list, all_success flag, success_count, failure_count
+        """
+        results = []
+        all_success = True
+        success_count = 0
+        failure_count = 0
+
+        for idx, update in enumerate(updates):
+            memory_id = update["id"]
+            add_tags_list = update.get("add_tags", [])
+            remove_tags_list = update.get("remove_tags", [])
+
+            try:
+                record = self.repository.get_memory(memory_id)
+                if record is None:
+                    raise NotFoundError("not_found")
+
+                if add_tags_list:
+                    self.repository.add_tags(memory_id, add_tags_list)
+                if remove_tags_list:
+                    self.repository.remove_tags(memory_id, remove_tags_list)
+
+                updated_record = self.repository.get_memory(memory_id)
+                results.append({"index": idx, "id": memory_id, "success": True, "error": None})
+                success_count += 1
+            except Exception as exc:
+                all_success = False
+                failure_count += 1
+                results.append({"index": idx, "id": memory_id, "success": False, "error": str(exc)})
+
+        self.worker.process_pending()
+
+        return {
+            "results": results,
+            "all_success": all_success,
+            "success_count": success_count,
+            "failure_count": failure_count,
+        }
 
     def journal(
         self,
