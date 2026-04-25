@@ -45,6 +45,10 @@ Expected response (healthy):
 
 `qdrant: "down"` and `ollama: "down"` are normal if you are running SQLite-only mode.
 
+## OpenCode Skill
+
+To ensure OpenCode uses Mnemonic correctly, you can install the dedicated OpenCode skill. See [OpenCode Skill Documentation](opencode-skill.md) for details on how the skill works and how it guides the agent.
+
 ## Example workflow
 
 ```
