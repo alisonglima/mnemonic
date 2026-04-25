@@ -59,7 +59,7 @@ Mnemonic exposes 12 tools over HTTP via FastMCP:
 ## Guides
 
 - [Obsidian integration](guides/obsidian.md) — Project journal entries to a local vault
-- [MCP clients](guides/mcp-clients.md) — Connect any MCP-compatible client
+- [MCP clients](guides/mcp-clients/index.md) — Connect any MCP-compatible client
 - [Backups](guides/backups.md) — Back up the SQLite source of truth
 - [Reindexing](guides/reindexing.md) — Rebuild Qdrant and Obsidian indexes
 

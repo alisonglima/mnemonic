@@ -138,7 +138,7 @@ For the full Docker Compose stack, the Mnemonic container already uses the inter
 | [Docker install](docs/installation/docker.md) | Run with Docker Compose |
 | [Local development](docs/installation/local-dev.md) | Run directly on your machine |
 | [Configuration](docs/installation/configuration.md) | Environment variable reference |
-| [MCP clients](docs/guides/mcp-clients.md) | Connect any MCP-compatible client |
+| [MCP clients](docs/guides/mcp-clients/index.md) | Connect any MCP-compatible client |
 | [Architecture](docs/architecture/overview.md) | System design overview |
 | [Troubleshooting](docs/reference/troubleshooting.md) | Common issues and solutions |
 
