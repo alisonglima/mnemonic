@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: transparent; }
+      .text-title { fill: #111827; font-family: system-ui, -apple-system, sans-serif; font-size: 42px; font-weight: 800; letter-spacing: -0.5px; }
+      .text-subtitle { fill: #6b7280; font-family: system-ui, -apple-system, sans-serif; font-size: 16px; font-weight: 500; }
+      .text-main { fill: #1f2937; font-family: system-ui, -apple-system, sans-serif; font-size: 16px; font-weight: 600; }
+      .text-muted { fill: #6b7280; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; }
+      .text-code { fill: #4b5563; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; font-weight: 500; }
+      
+      .box { fill: #ffffff; stroke: #e5e7eb; stroke-width: 2; rx: 12; }
+      .box-highlight { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 12; }
+      .box-agent { fill: #fafafa; stroke: #d4d4d8; stroke-width: 2; rx: 12; }
+      
+      .line { stroke: #9ca3af; stroke-width: 2; fill: none; }
+      .line-dashed { stroke: #9ca3af; stroke-width: 2; stroke-dasharray: 6 6; fill: none; }
+      .arrow { fill: #9ca3af; }
+      
+      @media (prefers-color-scheme: dark) {
+        .text-title { fill: #f9fafb; }
+        .text-subtitle { fill: #9ca3af; }
+        .text-main { fill: #f3f4f6; }
+        .text-muted { fill: #9ca3af; }
+        .text-code { fill: #d1d5db; }
+        
+        .box { fill: #1f2937; stroke: #374151; }
+        .box-highlight { fill: #111827; stroke: #4b5563; }
+        .box-agent { fill: #18181b; stroke: #3f3f46; }
+        
+        .line { stroke: #6b7280; }
+        .line-dashed { stroke: #6b7280; }
+        .arrow { fill: #6b7280; }
+      }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow" />
+    </marker>
+    <marker id="arrowhead-reverse" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto">
+      <polygon points="10 0, 0 3.5, 10 7" class="arrow" />
+    </marker>
+  </defs>
+  
+  <rect width="800" height="420" class="bg" />
+  
+  <!-- Title Section -->
+  <text x="400" y="60" text-anchor="middle" class="text-title">Mnemonic</text>
+  <text x="400" y="90" text-anchor="middle" class="text-subtitle">Local-first memory infrastructure for AI</text>
+  
+  <!-- AI Agent -->
+  <rect x="40" y="150" width="160" height="80" class="box-agent" />
+  <text x="120" y="190" text-anchor="middle" class="text-main">AI Agent</text>
+  <text x="120" y="210" text-anchor="middle" class="text-muted">Claude, Cursor, etc.</text>
+  
+  <!-- Connection: Agent <-> MCP -->
+  <path d="M 200 190 L 310 190" class="line" marker-end="url(#arrowhead)" marker-start="url(#arrowhead-reverse)" />
+  <text x="255" y="180" text-anchor="middle" class="text-code">HTTP / MCP</text>
+  
+  <!-- MCP Server -->
+  <rect x="310" y="150" width="180" height="80" class="box-highlight" />
+  <text x="400" y="190" text-anchor="middle" class="text-main">MCP Server</text>
+  <text x="400" y="210" text-anchor="middle" class="text-muted">FastMCP</text>
+  
+  <!-- Connections Down -->
+  <path d="M 400 230 L 400 260" class="line" />
+  
+  <!-- To SQLite -->
+  <path d="M 400 260 L 210 260 L 210 290" class="line" marker-end="url(#arrowhead)" />
+  
+  <!-- To Qdrant -->
+  <path d="M 400 260 L 400 290" class="line-dashed" marker-end="url(#arrowhead)" />
+  
+  <!-- To Obsidian -->
+  <path d="M 400 260 L 590 260 L 590 290" class="line" marker-end="url(#arrowhead)" />
+  
+  <!-- Databases -->
+  <!-- SQLite -->
+  <rect x="130" y="290" width="160" height="70" class="box" />
+  <text x="210" y="325" text-anchor="middle" class="text-main">SQLite</text>
+  <text x="210" y="345" text-anchor="middle" class="text-muted">Source of truth</text>
+  
+  <!-- Qdrant -->
+  <rect x="320" y="290" width="160" height="70" class="box" />
+  <text x="400" y="325" text-anchor="middle" class="text-main">Qdrant</text>
+  <text x="400" y="345" text-anchor="middle" class="text-muted">Vectors (Optional)</text>
+  
+  <!-- Obsidian -->
+  <rect x="510" y="290" width="160" height="70" class="box" />
+  <text x="590" y="325" text-anchor="middle" class="text-main">Obsidian</text>
+  <text x="590" y="345" text-anchor="middle" class="text-muted">Markdown vault</text>
+
+</svg>

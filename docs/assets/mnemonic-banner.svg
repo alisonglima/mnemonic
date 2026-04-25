@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09090b" />
+      <stop offset="50%" stop-color="#18181b" />
+      <stop offset="100%" stop-color="#09090b" />
+    </linearGradient>
+
+    <!-- Grid Pattern -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#27272a" stroke-width="1" stroke-opacity="0.5"/>
+    </pattern>
+
+    <!-- Glow Effect -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glow-secondary" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="400" fill="url(#bg-grad)" />
+  <rect width="1200" height="400" fill="url(#grid)" />
+  
+  <!-- Glows -->
+  <circle cx="600" cy="200" r="400" fill="url(#glow)" />
+  <circle cx="900" cy="100" r="300" fill="url(#glow-secondary)" />
+  <circle cx="300" cy="300" r="300" fill="url(#glow-secondary)" />
+
+  <!-- Abstract Network Nodes / Motifs -->
+  <g stroke="#3f3f46" stroke-width="1.5" fill="none">
+    <!-- Connections -->
+    <path d="M350 200 Q 450 150 500 200 T 850 200" stroke-dasharray="4 4" opacity="0.5"/>
+    <path d="M400 280 Q 550 350 700 280" stroke-dasharray="4 4" opacity="0.3"/>
+    <path d="M500 120 Q 600 80 700 120" stroke-dasharray="4 4" opacity="0.3"/>
+  </g>
+
+  <!-- Left Motif: AI Agent / MCP -->
+  <g transform="translate(300, 200)">
+    <circle cx="0" cy="0" r="30" fill="#18181b" stroke="#8b5cf6" stroke-width="2"/>
+    <circle cx="0" cy="0" r="20" fill="#8b5cf6" opacity="0.2"/>
+    <path d="M-10 -5 L10 -5 M-10 5 L10 5" stroke="#a78bfa" stroke-width="2" stroke-linecap="round"/>
+    <text x="0" y="55" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="12" text-anchor="middle" font-weight="500">MCP Agent</text>
+  </g>
+
+  <!-- Right Motif: Obsidian / Qdrant -->
+  <g transform="translate(900, 200)">
+    <circle cx="0" cy="0" r="30" fill="#18181b" stroke="#10b981" stroke-width="2"/>
+    <path d="M-10 -10 L10 -10 L15 0 L10 10 L-10 10 L-15 0 Z" stroke="#34d399" stroke-width="1.5" fill="none"/>
+    <text x="0" y="55" fill="#a1a1aa" font-family="system-ui, sans-serif" font-size="12" text-anchor="middle" font-weight="500">Projections</text>
+  </g>
+
+  <!-- Center Motif: SQLite / Brain -->
+  <g transform="translate(600, 200)">
+    <circle cx="0" cy="0" r="45" fill="#27272a" stroke="#f4f4f5" stroke-width="2"/>
+    <!-- DB Icon -->
+    <path d="M-15 -10 C-15 -15 15 -15 15 -10 C15 -5 -15 -5 -15 -10 Z" fill="none" stroke="#e4e4e7" stroke-width="2"/>
+    <path d="M-15 -10 L-15 10 C-15 15 15 15 15 10 L15 -10" fill="none" stroke="#e4e4e7" stroke-width="2"/>
+    <path d="M-15 0 C-15 5 15 5 15 0" fill="none" stroke="#e4e4e7" stroke-width="2"/>
+    <circle cx="25" cy="-25" r="12" fill="#8b5cf6" opacity="0.8"/>
+    <text x="25" y="-21" fill="#fff" font-family="system-ui, sans-serif" font-size="12" text-anchor="middle" font-weight="bold">SQLite</text>
+  </g>
+
+  <!-- Main Title -->
+  <g transform="translate(600, 100)">
+    <text x="0" y="0" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="64" font-weight="800" text-anchor="middle" letter-spacing="-1.5">
+      Mnemonic
+    </text>
+    <text x="0" y="35" fill="#a1a1aa" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="400" text-anchor="middle" letter-spacing="0.5">
+      Local-first memory infrastructure for AI
+    </text>
+  </g>
+
+</svg>

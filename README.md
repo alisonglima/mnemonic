@@ -1,10 +1,21 @@
-# Mnemonic
+<div align="center">
+  <img src="docs/assets/mnemonic-banner.svg" alt="Mnemonic Banner" width="100%" />
 
-> **Naming note:** Mnemonic is the product name. The Python package is `mcp-memory`. The repository lives at `mnemonic`.
+  <br />
 
-**Local-first memory infrastructure for AI.**
+  # 🧠 Mnemonic: Local-first memory infrastructure for AI
 
-Mnemonic gives AI agents a persistent, versioned, searchable memory layer that runs on your machine. No cloud dependency. No vendor lock-in. Just structured memory you control.
+  [![Star on GitHub](https://img.shields.io/github/stars/alisonglima/mnemonic?style=for-the-badge&logo=github&color=gold)](https://github.com/alisonglima/mnemonic/stargazers)
+  [![MIT License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge&logo=opensourceinitiative)](https://opensource.org/licenses/MIT)
+  [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+  [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+  [![FastMCP](https://img.shields.io/badge/MCP-FastMCP-10b981?style=for-the-badge)](https://modelcontextprotocol.io/)
+  [![Local-first](https://img.shields.io/badge/Architecture-Local--first-8b5cf6?style=for-the-badge)](#architecture-at-a-glance)
+
+  **Mnemonic gives AI agents a persistent, versioned, searchable memory layer that runs on your machine.**
+  
+  *No cloud dependency. No vendor lock-in. Just structured memory you control.*
+</div>
 
 ---
 
@@ -39,21 +50,7 @@ Mnemonic solves this by providing:
 
 ## Architecture at a glance
 
-```
-┌─────────────┐     HTTP/MCP      ┌──────────────────┐
-│  AI Agent   │ ─────────────────▶ │  MCP Server      │
-│  (Claude,   │                    │  (FastMCP)       │
-│   Cursor,   │ ◀───────────────── │                  │
-│   etc.)     │                    │                  │
-└─────────────┘                    └────────┬─────────┘
-                                             │
-                           ┌─────────────────┼─────────────────┐
-                           ▼                 ▼                 ▼
-                    ┌────────────┐   ┌──────────────┐   ┌────────────┐
-                    │  SQLite    │   │   Qdrant     │   │  Obsidian  │
-                    │  (records) │   │  (vectors)   │   │  (vault)   │
-                    └────────────┘   └──────────────┘   └────────────┘
-```
+![Mnemonic Architecture](docs/assets/architecture.svg)
 
 - **SQLite** is the source of truth. Every record, version, and tag lives here.
 - **Qdrant** stores deterministic hash-based vector projections for approximate similarity lookup. Degrades gracefully if unavailable.
@@ -119,7 +116,7 @@ Qdrant is disabled by default for host-local `make run` workflows (empty `QDRANT
    ```
 3. Set `QDRANT_URL=http://localhost:6333` in your `.env`.
 
-For the full Docker Compose stack, the `mcp-memory` container already uses the internal `http://qdrant:6333` service URL from `docker-compose.yml`; do not set it to `localhost` inside the container. Ollama is reserved for future local-model workflows and is not used by current projection logic.
+For the full Docker Compose stack, the Mnemonic container already uses the internal `http://qdrant:6333` service URL from `docker-compose.yml`; do not set it to `localhost` inside the container. Ollama is reserved for future local-model workflows and is not used by current projection logic.
 
 ---
 
