@@ -245,12 +245,21 @@ class MemoryRepository:
         include_archived: bool,
         include_retracted: bool,
         limit: int,
+        offset: int = 0,
+        status: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
     ) -> List[MemoryRecord]:
-        statuses = ["active"]
-        if include_archived:
-            statuses.append("archived")
-        if include_retracted:
-            statuses.append("retracted")
+        if status:
+            statuses = [status]
+        else:
+            statuses = ["active"]
+            if include_archived:
+                statuses.append("archived")
+            if include_retracted:
+                statuses.append("retracted")
         params: List[Any] = [namespace]
         where = ["namespace = ?", "status IN ({})".format(",".join("?" for _ in statuses))]
         params.extend(statuses)
@@ -263,8 +272,20 @@ class MemoryRepository:
         if query:
             where.append("LOWER(content) LIKE ?")
             params.append(f"%{query.lower()}%")
-        params.append(limit)
-        sql = f"SELECT * FROM memory_records WHERE {' AND '.join(where)} ORDER BY updated_at DESC LIMIT ?"
+        if created_after:
+            where.append("created_at >= ?")
+            params.append(created_after)
+        if created_before:
+            where.append("created_at <= ?")
+            params.append(created_before)
+        if updated_after:
+            where.append("updated_at >= ?")
+            params.append(updated_after)
+        if updated_before:
+            where.append("updated_at <= ?")
+            params.append(updated_before)
+        params.extend([limit, offset])
+        sql = f"SELECT * FROM memory_records WHERE {' AND '.join(where)} ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         with self.database.connect() as connection:
             rows = connection.execute(sql, tuple(params)).fetchall()
         return [self._row_to_record(row) for row in rows]

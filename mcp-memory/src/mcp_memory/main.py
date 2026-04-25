@@ -58,7 +58,7 @@ def build_mcp_server() -> FastMCP:
             return {"error": {"code": "internal_error", "message": str(exc), "retryable": False}}
 
     @mcp.tool(name="memory.search")
-    def memory_search(query: str, namespace: str, scope_id: str = None, limit: int = 5, include_archived: bool = False, include_retracted: bool = False):
+    def memory_search(query: str, namespace: str, scope_id: str = None, limit: int = 5, include_archived: bool = False, include_retracted: bool = False, offset: int = 0, status: str = None, created_after: str = None, created_before: str = None, updated_after: str = None, updated_before: str = None):
         return safe_call(
             tools.search,
             query=query,
@@ -67,6 +67,12 @@ def build_mcp_server() -> FastMCP:
             limit=limit,
             include_archived=include_archived,
             include_retracted=include_retracted,
+            offset=offset,
+            status=status,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
 
     @mcp.tool(name="memory.get")
@@ -139,6 +145,14 @@ def build_mcp_server() -> FastMCP:
     @mcp.tool(name="memory.append_note")
     def memory_append_note(id: str, note: str, source: str):
         return safe_call(tools.append_note, id, note, source)
+
+    @mcp.tool(name="memory.batch_write")
+    def memory_batch_write(items: list):
+        return safe_call(tools.batch_write, items=items)
+
+    @mcp.tool(name="memory.batch_update_tags")
+    def memory_batch_update_tags(updates: list):
+        return safe_call(tools.batch_update_tags, updates=updates)
 
     return mcp
 

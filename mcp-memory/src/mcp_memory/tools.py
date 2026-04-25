@@ -41,6 +41,12 @@ class MemoryTools:
         limit: int = 5,
         include_archived: bool = False,
         include_retracted: bool = False,
+        offset: int = 0,
+        status: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
     ) -> Dict[str, Any]:
         result = self.search_service.search(
             query=query,
@@ -50,6 +56,12 @@ class MemoryTools:
             limit=limit,
             include_archived=include_archived,
             include_retracted=include_retracted,
+            offset=offset,
+            status=status,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
         return {
             "items": result.items,
@@ -167,6 +179,99 @@ class MemoryTools:
         record = self.repository.append_note(id, note=note, source=source)
         self.worker.process_pending()
         return {"record": record}
+
+    def batch_write(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Write multiple memory records in a batch.
+
+        Args:
+            items: List of memory item dicts with keys: content, type, namespace,
+                   scope_id, source, tags (optional), idempotency_key (optional),
+                   metadata (optional), obsidian_projection (optional)
+
+        Returns:
+            Dict with results list, all_created flag, created_count, failed_count
+        """
+        results = []
+        all_created = True
+        created_count = 0
+        failed_count = 0
+
+        for item in items:
+            try:
+                result = self.write(
+                    content=item["content"],
+                    type=item["type"],
+                    namespace=item["namespace"],
+                    scope_id=item["scope_id"],
+                    source=item["source"],
+                    tags=item.get("tags"),
+                    idempotency_key=item.get("idempotency_key"),
+                    metadata=item.get("metadata"),
+                    obsidian_projection=item.get("obsidian_projection", False),
+                )
+                results.append(result)
+                if not result["created"]:
+                    all_created = False
+                else:
+                    created_count += 1
+            except Exception:
+                all_created = False
+                failed_count += 1
+                results.append({"error": str(Exception)})
+
+        return {
+            "results": results,
+            "all_created": all_created,
+            "created_count": created_count,
+            "failed_count": failed_count,
+        }
+
+    def batch_update_tags(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Update tags on multiple memory records in a batch.
+
+        Args:
+            updates: List of update dicts with keys: id, tags_to_add (optional),
+                     tags_to_remove (optional)
+
+        Returns:
+            Dict with results list, all_success flag, success_count, failure_count
+        """
+        results = []
+        all_success = True
+        success_count = 0
+        failure_count = 0
+
+        for update in updates:
+            memory_id = update["id"]
+            tags_to_add = update.get("tags_to_add", [])
+            tags_to_remove = update.get("tags_to_remove", [])
+
+            try:
+                record = self.repository.get_memory(memory_id)
+                if record is None:
+                    raise NotFoundError("not_found")
+
+                if tags_to_add:
+                    self.repository.add_tags(memory_id, tags_to_add)
+                if tags_to_remove:
+                    self.repository.remove_tags(memory_id, tags_to_remove)
+
+                updated_record = self.repository.get_memory(memory_id)
+                results.append({"record": updated_record, "success": True})
+                success_count += 1
+            except Exception:
+                all_success = False
+                failure_count += 1
+                results.append({"id": memory_id, "success": False, "error": str(Exception)})
+
+        self.worker.process_pending()
+
+        return {
+            "results": results,
+            "all_success": all_success,
+            "success_count": success_count,
+            "failure_count": failure_count,
+        }
 
     def journal(
         self,

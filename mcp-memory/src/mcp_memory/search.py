@@ -23,16 +23,29 @@ class SearchService:
         limit: int = 5,
         include_archived: bool = False,
         include_retracted: bool = False,
+        offset: int = 0,
+        status: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
     ) -> SearchResult:
-        if include_retracted:
+        # When status filter or date filters are used, fall back to SQLite
+        if status or created_after or created_before or updated_after or updated_before or offset > 0 or include_retracted:
             items = self.repository.search_records(
                 query=query,
                 namespace=namespace,
                 scope_id=scope_id,
                 types=types,
                 include_archived=include_archived,
-                include_retracted=True,
+                include_retracted=include_retracted,
                 limit=limit,
+                offset=offset,
+                status=status,
+                created_after=created_after,
+                created_before=created_before,
+                updated_after=updated_after,
+                updated_before=updated_before,
             )
             return SearchResult(items=items, search_mode="fallback_sqlite", degraded=False)
 
