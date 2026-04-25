@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Settings(BaseModel):
@@ -15,12 +16,12 @@ class Settings(BaseModel):
     ollama_url: str = ""
 
     # Embedding configuration
-    embedding_strategy: str = "hash"  # "hash" or "ollama"
+    embedding_strategy: Literal["hash", "ollama"] = "hash"
     embedding_model: str = "nomic-embed-text"
 
     # Namespace and retention configuration
-    default_namespace: str = "default"
-    retention_action: str = "delete"  # "delete" or "archive"
+    default_namespace: str = ""
+    retention_action: Literal["archive", "none"] = "archive"
     retention_days: int = 30
 
     @classmethod
@@ -34,7 +35,7 @@ class Settings(BaseModel):
             ollama_url=os.getenv("OLLAMA_URL", ""),
             embedding_strategy=os.getenv("EMBEDDING_STRATEGY", "hash"),
             embedding_model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
-            default_namespace=os.getenv("DEFAULT_NAMESPACE", "default"),
-            retention_action=os.getenv("RETENTION_ACTION", "delete"),
+            default_namespace=os.getenv("DEFAULT_NAMESPACE", ""),
+            retention_action=os.getenv("RETENTION_ACTION", "archive"),
             retention_days=int(os.getenv("RETENTION_DAYS", "30")),
         )

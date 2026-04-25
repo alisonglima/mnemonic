@@ -39,11 +39,11 @@ class TestSettings(unittest.TestCase):
 
     def test_default_namespace_defaults(self) -> None:
         settings = Settings.from_env()
-        self.assertEqual(settings.default_namespace, "default")
+        self.assertEqual(settings.default_namespace, "")
 
-    def test_retention_action_defaults_to_delete(self) -> None:
+    def test_retention_action_defaults_to_archive(self) -> None:
         settings = Settings.from_env()
-        self.assertEqual(settings.retention_action, "delete")
+        self.assertEqual(settings.retention_action, "archive")
 
     def test_retention_days_defaults_to_30(self) -> None:
         settings = Settings.from_env()

@@ -30,6 +30,25 @@ def main() -> int:
     )
     if not qdrant.enabled:
         return 0
+
+    # Check if collection exists and needs to be rebuilt due to vector_size mismatch
+    if qdrant.client is not None and hasattr(qdrant.client, "collection_exists"):
+        expected_vector_size = embedding_provider.vector_size()
+        if qdrant.client.collection_exists(settings.qdrant_collection):
+            try:
+                if hasattr(qdrant.client, "get_collection"):
+                    info = qdrant.client.get_collection(settings.qdrant_collection)
+                    current_vector_size = info.config.params.vector.size
+                    if current_vector_size != expected_vector_size:
+                        # Drop and recreate with correct vector size
+                        qdrant.client.delete_collection(collection_name=settings.qdrant_collection)
+                        qdrant.ensure_collection()
+            except Exception:
+                # If we can't check, ensure collection exists
+                qdrant.ensure_collection()
+        else:
+            qdrant.ensure_collection()
+
     for record in repository.list_records():
         if record.status in {"active", "archived"}:
             qdrant.upsert(record)

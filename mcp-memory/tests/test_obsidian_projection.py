@@ -51,7 +51,7 @@ class TestObsidianProjectionStore(unittest.TestCase):
         record = _make_record(content="Journal entry content")
         path = self.store.materialize_journal(record)
         self.assertTrue(path.exists())
-        self.assertTrue((self.tmp_path / "vault" / f"{record.id}.md").exists())
+        self.assertTrue((self.tmp_path / "vault" / "memory" / f"{record.id}.md").exists())
 
     def test_materialize_journal_writes_frontmatter(self) -> None:
         record = _make_record(content="Frontmatter test", type="decision", tags=["important", "decision"])
@@ -72,29 +72,29 @@ class TestObsidianProjectionStore(unittest.TestCase):
     def test_materialize_creates_status_subdir(self) -> None:
         record = _make_record(status="archived")
         path = self.store.materialize_journal(record)
-        # Should create archived/ subdir
-        self.assertTrue((self.tmp_path / "vault" / "archived" / f"{record.id}.md").exists())
+        # Should create memory/_archived/ subdir
+        self.assertTrue((self.tmp_path / "vault" / "memory" / "_archived" / f"{record.id}.md").exists())
 
     def test_materialize_retracted_creates_retracted_subdir(self) -> None:
         record = _make_record(status="retracted")
         path = self.store.materialize_journal(record)
-        self.assertTrue((self.tmp_path / "vault" / "retracted" / f"{record.id}.md").exists())
+        self.assertTrue((self.tmp_path / "vault" / "memory" / "_retracted" / f"{record.id}.md").exists())
 
     def test_materialize_deleted_creates_deleted_subdir(self) -> None:
         record = _make_record(status="deleted")
         path = self.store.materialize_journal(record)
-        self.assertTrue((self.tmp_path / "vault" / "deleted" / f"{record.id}.md").exists())
+        self.assertTrue((self.tmp_path / "vault" / "memory" / "_archived" / f"{record.id}.md").exists())
 
     def test_frontmatter_includes_scope_id(self) -> None:
         record = _make_record()
         self.store.materialize_journal(record)
-        content = (self.tmp_path / "vault" / f"{record.id}.md").read_text(encoding="utf-8")
+        content = (self.tmp_path / "vault" / "memory" / f"{record.id}.md").read_text(encoding="utf-8")
         self.assertIn(f"scope_id: {record.scope_id}", content)
 
     def test_frontmatter_includes_created_and_updated(self) -> None:
         record = _make_record()
         self.store.materialize_journal(record)
-        content = (self.tmp_path / "vault" / f"{record.id}.md").read_text(encoding="utf-8")
+        content = (self.tmp_path / "vault" / "memory" / f"{record.id}.md").read_text(encoding="utf-8")
         self.assertIn(f"created_at: {record.created_at}", content)
         self.assertIn(f"updated_at: {record.updated_at}", content)
 

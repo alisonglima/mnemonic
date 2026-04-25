@@ -131,7 +131,7 @@ class ToolTests(unittest.TestCase):
 
         self.assertTrue(result["record"].obsidian_projection)
         self.assertEqual(result["record"].type, "decision")
-        self.assertTrue((self.tmp_path / "vault" / f"{result['record'].id}.md").exists())
+        self.assertTrue((self.tmp_path / "vault" / "memory" / f"{result['record'].id}.md").exists())
 
     def test_get_returns_projection_state_and_health_counts_backlog(self) -> None:
         created = self.tools.write(

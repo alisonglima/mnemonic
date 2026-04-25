@@ -41,19 +41,22 @@ class QdrantProjectionStore:
         self.url = url.rstrip("/")
         self.supported = client is not None or QdrantClient is not None
         self.collection_name = collection_name
-        self.vector_size = vector_size
         self.vector_strategy = vector_strategy
 
         # Embedding provider takes precedence over simple embedder callable
+        # Derive vector_size from provider when available
         if embedding_provider is not None:
             self._embedding_provider = embedding_provider
             self._embedder = embedding_provider.embed
+            self.vector_size = embedding_provider.vector_size()
         elif embedder is not None:
             self._embedder = embedder
             self._embedding_provider = None
+            self.vector_size = vector_size
         else:
             self._embedding_provider = HashEmbeddingProvider(size=vector_size)
             self._embedder = self._embedding_provider.embed
+            self.vector_size = vector_size
 
         if client is not None:
             self.client = client

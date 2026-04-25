@@ -46,6 +46,12 @@ class HashEmbeddingProvider(EmbeddingProvider):
     def is_available(self) -> bool:
         return True
 
+    def strategy_name(self) -> str:
+        return "hash"
+
+    def vector_size(self) -> int:
+        return self.size
+
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """Ollama-backed embedding provider with hash fallback."""
@@ -85,6 +91,12 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                 return 200 <= resp.status < 300
         except (URLError, TimeoutError, ValueError):
             return False
+
+    def strategy_name(self) -> str:
+        return "ollama"
+
+    def vector_size(self) -> int:
+        return self.config.embedding_size
 
 
 def create_embedding_provider(config: EmbeddingConfig) -> EmbeddingProvider:

@@ -6,12 +6,12 @@ from mcp_memory.models import MemoryRecord
 
 
 class ObsidianProjectionStore:
-    # Status subdirectories
+    # Status subdirectories under memory/ layer
     STATUS_SUBDIRS = {
-        "active": "",
-        "archived": "archived",
-        "retracted": "retracted",
-        "deleted": "deleted",
+        "active": "memory",
+        "archived": "memory/_archived",
+        "retracted": "memory/_retracted",
+        "deleted": "memory/_archived",
     }
 
     def __init__(self, vault_path: Path):
@@ -22,10 +22,8 @@ class ObsidianProjectionStore:
 
     def _get_status_dir(self, status: str) -> Path:
         """Get the subdirectory path for a given status."""
-        subdir = self.STATUS_SUBDIRS.get(status, "")
-        if subdir:
-            return self.vault_path / subdir
-        return self.vault_path
+        subdir = self.STATUS_SUBDIRS.get(status, "memory")
+        return self.vault_path / subdir
 
     def materialize_journal(self, record: MemoryRecord) -> Path:
         """Materialize a memory record as a Markdown file with YAML frontmatter."""
@@ -43,9 +41,13 @@ class ObsidianProjectionStore:
             f"status: {record.status}",
             f"namespace: {record.namespace}",
             f"scope_id: {record.scope_id}",
+            f"source: {record.source}",
             f"created_at: {record.created_at}",
             f"updated_at: {record.updated_at}",
         ]
+
+        # Add links field with wikilinks format
+        frontmatter_lines.append("links: []")
 
         # Add tags if present
         if record.tags:
