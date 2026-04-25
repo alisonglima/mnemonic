@@ -63,8 +63,8 @@ class TestBatchWrite(unittest.TestCase):
         self.assertEqual(result["created_count"], 3)
         self.assertEqual(result["failed_count"], 0)
 
-        # Verify all records exist
-        ids = [r["record"].id for r in result["results"]]
+        # Verify all records exist - new shape: {index, id, error}
+        ids = [r["id"] for r in result["results"]]
         for memory_id in ids:
             fetched = self.tools.get(memory_id)
             self.assertIsNotNone(fetched["record"])
@@ -95,8 +95,6 @@ class TestBatchWrite(unittest.TestCase):
         # First should be created, second should be skipped (not created)
         self.assertTrue(result["results"][0]["created"])
         self.assertFalse(result["results"][1]["created"])
-        # When idempotency key matches, possible_duplicate is False (exact match via idempotency)
-        self.assertFalse(result["results"][1]["possible_duplicate"])
         self.assertFalse(result["all_created"])
         self.assertEqual(result["created_count"], 1)
         self.assertEqual(result["failed_count"], 0)
@@ -158,13 +156,13 @@ class TestBatchUpdateTags(unittest.TestCase):
         updates = [
             {
                 "id": first["record"].id,
-                "tags_to_add": ["new_first"],
-                "tags_to_remove": ["old"],
+                "add_tags": ["new_first"],
+                "remove_tags": ["old"],
             },
             {
                 "id": second["record"].id,
-                "tags_to_add": ["new_second"],
-                "tags_to_remove": ["old"],
+                "add_tags": ["new_second"],
+                "remove_tags": ["old"],
             },
         ]
 
@@ -196,13 +194,13 @@ class TestBatchUpdateTags(unittest.TestCase):
         updates = [
             {
                 "id": created["record"].id,
-                "tags_to_add": ["added"],
-                "tags_to_remove": [],
+                "add_tags": ["added"],
+                "remove_tags": [],
             },
             {
                 "id": "nonexistent-id",
-                "tags_to_add": ["never_added"],
-                "tags_to_remove": [],
+                "add_tags": ["never_added"],
+                "remove_tags": [],
             },
         ]
 

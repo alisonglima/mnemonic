@@ -68,6 +68,7 @@ class SearchService:
             include_archived=include_archived,
             include_retracted=False,
             limit=limit,
+            offset=offset,
         )
         if not qdrant_available:
             return SearchResult(items=items, search_mode="fallback_sqlite", degraded=True)

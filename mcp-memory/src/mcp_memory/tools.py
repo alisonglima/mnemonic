@@ -196,10 +196,14 @@ class MemoryTools:
         created_count = 0
         failed_count = 0
 
-        for item in items:
+        for idx, item in enumerate(items):
             try:
+                content = item.get("content", "")
+                if not content or not content.strip():
+                    raise ValueError("content is required and must be non-empty")
+
                 result = self.write(
-                    content=item["content"],
+                    content=content,
                     type=item["type"],
                     namespace=item["namespace"],
                     scope_id=item["scope_id"],
@@ -209,15 +213,17 @@ class MemoryTools:
                     metadata=item.get("metadata"),
                     obsidian_projection=item.get("obsidian_projection", False),
                 )
-                results.append(result)
-                if not result["created"]:
-                    all_created = False
-                else:
+                record = result.get("record")
+                if result.get("created"):
                     created_count += 1
-            except Exception:
+                    results.append({"index": idx, "id": record.id if record else None, "created": True, "error": None})
+                else:
+                    all_created = False
+                    results.append({"index": idx, "id": record.id if record else None, "created": False, "error": None})
+            except Exception as exc:
                 all_created = False
                 failed_count += 1
-                results.append({"error": str(Exception)})
+                results.append({"index": idx, "id": None, "error": str(exc)})
 
         return {
             "results": results,
@@ -230,8 +236,8 @@ class MemoryTools:
         """Update tags on multiple memory records in a batch.
 
         Args:
-            updates: List of update dicts with keys: id, tags_to_add (optional),
-                     tags_to_remove (optional)
+            updates: List of update dicts with keys: id, add_tags (optional),
+                     remove_tags (optional)
 
         Returns:
             Dict with results list, all_success flag, success_count, failure_count
@@ -241,28 +247,28 @@ class MemoryTools:
         success_count = 0
         failure_count = 0
 
-        for update in updates:
+        for idx, update in enumerate(updates):
             memory_id = update["id"]
-            tags_to_add = update.get("tags_to_add", [])
-            tags_to_remove = update.get("tags_to_remove", [])
+            add_tags_list = update.get("add_tags", [])
+            remove_tags_list = update.get("remove_tags", [])
 
             try:
                 record = self.repository.get_memory(memory_id)
                 if record is None:
                     raise NotFoundError("not_found")
 
-                if tags_to_add:
-                    self.repository.add_tags(memory_id, tags_to_add)
-                if tags_to_remove:
-                    self.repository.remove_tags(memory_id, tags_to_remove)
+                if add_tags_list:
+                    self.repository.add_tags(memory_id, add_tags_list)
+                if remove_tags_list:
+                    self.repository.remove_tags(memory_id, remove_tags_list)
 
                 updated_record = self.repository.get_memory(memory_id)
-                results.append({"record": updated_record, "success": True})
+                results.append({"index": idx, "id": memory_id, "success": True, "error": None})
                 success_count += 1
-            except Exception:
+            except Exception as exc:
                 all_success = False
                 failure_count += 1
-                results.append({"id": memory_id, "success": False, "error": str(Exception)})
+                results.append({"index": idx, "id": memory_id, "success": False, "error": str(exc)})
 
         self.worker.process_pending()
 

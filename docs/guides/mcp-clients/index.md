@@ -87,8 +87,8 @@ Each update dict supports:
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | Yes | Memory record ID |
-| `tags_to_add` | list[string] | No | Tags to add |
-| `tags_to_remove` | list[string] | No | Tags to remove |
+| `add_tags` | list[string] | No | Tags to add |
+| `remove_tags` | list[string] | No | Tags to remove |
 
 Returns: `{results: [], all_success: bool, success_count: int, failure_count: int}`
 
