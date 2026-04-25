@@ -185,7 +185,7 @@ def main() -> int:
         worker.start()
         server = build_mcp_server()
         try:
-            server.run(transport="http", host=args.host, port=args.port)
+            server.run(transport="sse", host=args.host, port=args.port)
         finally:
             stop_event.set()
             worker.join(timeout=2)
