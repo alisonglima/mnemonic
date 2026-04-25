@@ -10,10 +10,10 @@ from mcp_memory.models import MemoryRecord, SearchHit
 
 try:
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Distance, Filter, MatchValue, PointIdsList, PointStruct, VectorParams, FieldCondition
+    from qdrant_client.models import Distance, FieldCondition, Filter, MatchAny, MatchValue, PointIdsList, PointStruct, VectorParams
 except Exception:  # noqa: BLE001
     QdrantClient = None
-    Distance = Filter = MatchValue = PointIdsList = PointStruct = VectorParams = FieldCondition = None
+    Distance = FieldCondition = Filter = MatchAny = MatchValue = PointIdsList = PointStruct = VectorParams = None
 
 
 def simple_embed(text: str, size: int = 8) -> List[float]:
@@ -114,18 +114,31 @@ class QdrantProjectionStore:
             return []
         self.ensure_collection()
         statuses = ["active"] + (["archived"] if include_archived else [])
-        conditions = [{"key": "status", "match": status} for status in statuses]
-        conditions.append({"key": "namespace", "match": namespace})
-        if scope_id:
-            conditions.append({"key": "scope_id", "match": scope_id})
-        if types:
-            for item in types:
-                conditions.append({"key": "type", "match": item})
+        if Filter is not None:
+            must_conditions = [
+                FieldCondition(key="status", match=MatchAny(any=statuses)),
+                FieldCondition(key="namespace", match=MatchValue(value=namespace)),
+            ]
+            if scope_id:
+                must_conditions.append(FieldCondition(key="scope_id", match=MatchValue(value=scope_id)))
+            if types:
+                must_conditions.append(FieldCondition(key="type", match=MatchAny(any=types)))
+            query_filter = Filter(must=must_conditions)
+        else:
+            must_conditions = [
+                {"key": "status", "match": {"any": statuses}},
+                {"key": "namespace", "match": {"value": namespace}},
+            ]
+            if scope_id:
+                must_conditions.append({"key": "scope_id", "match": {"value": scope_id}})
+            if types:
+                must_conditions.append({"key": "type", "match": {"any": types}})
+            query_filter = {"must": must_conditions}
         hits = self.client.query_points(
             collection_name=self.collection_name,
             query=self._embedder(query),
             limit=limit,
-            query_filter=conditions,
+            query_filter=query_filter,
             with_payload=True,
             with_vectors=False,
         )

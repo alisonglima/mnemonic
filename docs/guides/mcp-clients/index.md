@@ -12,10 +12,10 @@ Mnemonic exposes an HTTP MCP server. Any MCP-compatible client can connect using
 ## Server address
 
 ```
-http://localhost:8080
+http://localhost:8080/sse
 ```
 
-The server uses the `http` transport (FastMCP). No SSE or WebSocket upgrade is required.
+The server uses FastMCP SSE transport. Clients that require a transport type should use `sse`; clients that only require a URL should point at `/sse`.
 
 ## Exposed tools
 

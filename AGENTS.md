@@ -57,7 +57,7 @@ make test
 
 ## Invariants — Never Violate
 
-- **MCP tool names are frozen.** The 12 tools in `main.py` (`memory.search`, `memory.write`, `memory.get`, `memory.update`, `memory.retract`, `memory.delete`, `memory.journal`, `memory.archive`, `memory.add_tags`, `memory.remove_tags`, `memory.append_note`, `memory.health`) must not be renamed or have required parameters removed.
+- **MCP tool names are frozen.** Tools in `main.py` (`memory.search`, `memory.write`, `memory.get`, `memory.update`, `memory.retract`, `memory.delete`, `memory.journal`, `memory.archive`, `memory.add_tags`, `memory.remove_tags`, `memory.append_note`, `memory.health`, `memory.batch_write`, `memory.batch_update_tags`) must not be renamed or have required parameters removed.
 - **Env var names are frozen.** `SQLITE_PATH`, `OBSIDIAN_VAULT`, `MCP_PORT`, `QDRANT_URL`, `QDRANT_COLLECTION`, `OLLAMA_URL` must keep their current behavior.
 - **`expected_version` is required for mutations.** `memory.update`, `memory.retract`, `memory.delete` all require `expected_version: int` for optimistic concurrency. Do not make this optional.
 - **SQLite schema is append-only.** Add new columns in a new migration in `migrations.py`. Never drop or rename columns.

@@ -44,8 +44,8 @@ All services in `docker-compose.yml` have health checks defined. Docker will not
 
 | Service | Health Check | Healthy When |
 |---------|-------------|---------------|
-| `qdrant` | `curl -f http://localhost:6333/health` | HTTP 200 from `/health` |
-| `ollama` | `curl -f http://localhost:11434/api/tags` | HTTP 200 from `/api/tags` |
+| `qdrant` | Bash TCP probe against `GET /healthz` | HTTP 200 from `/healthz` |
+| `ollama` | `ollama list` | Ollama CLI can reach the local server |
 | `mcp-memory` | Python `health_check.docker_health()` | SQLite file exists |
 
 ### Startup Ordering
@@ -54,7 +54,7 @@ All services in `docker-compose.yml` have health checks defined. Docker will not
 
 1. On first startup, wait for Qdrant and Ollama to become healthy
 2. MCP server starts only when both dependencies are ready
-3. If a dependency becomes unhealthy, Docker will not restart the dependent service until it recovers
+3. If a dependency becomes unhealthy after startup, `memory.health` reports degraded state while SQLite-backed memory remains available
 
 ### Verifying Health
 

@@ -12,7 +12,7 @@
 
 ## MCP Tools
 
-Mnemonic exposes 12 tools over HTTP via FastMCP:
+Mnemonic exposes MCP tools over FastMCP SSE:
 
 | Tool | Purpose |
 |---|---|
@@ -28,13 +28,15 @@ Mnemonic exposes 12 tools over HTTP via FastMCP:
 | `memory.remove_tags` | Detach tags from existing records |
 | `memory.append_note` | Add a note to an existing record |
 | `memory.health` | Check system status: SQLite DB file exists, Qdrant reachable, Obsidian vault path exists |
+| `memory.batch_write` | Write multiple records in one call |
+| `memory.batch_update_tags` | Update tags on multiple records in one call |
 
 ## Operations
 
 | Command | Description |
 |---|---|
 | `make setup` | Install dependencies (editable mode) |
-| `make test` | Run unit test suite (26 tests) |
+| `make test` | Run unit test suite |
 | `make run` | Start MCP server on `127.0.0.1:8080` |
 | `make docker-up` | Start all services via docker compose |
 | `make docker-down` | Stop docker compose services |

@@ -1,6 +1,6 @@
 # Community Client Setup Template
 
-Mnemonic uses standard HTTP MCP transport (FastMCP). Any client that supports `type: http` MCP servers can connect.
+Mnemonic uses FastMCP SSE transport. Any client that supports SSE MCP servers can connect.
 
 ## Minimum configuration
 
@@ -8,26 +8,28 @@ Mnemonic uses standard HTTP MCP transport (FastMCP). Any client that supports `t
 {
   "mcpServers": {
     "memory": {
-      "type": "http",
-      "url": "http://localhost:8080"
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
     }
   }
 }
 ```
 
-Replace `http://localhost:8080` with your `MCP_PORT` if customized.
+Replace port `8080` with your `MCP_PORT` if customized.
 
 ## Verifying connectivity
 
-Any MCP client should be able to call `memory.health`. A successful response looks like:
+Any MCP client should be able to call `memory.health`. A SQLite-only response looks like:
 
 ```json
 {
   "sqlite": "up",
   "worker": "up",
-  "degraded": false
+  "degraded": true
 }
 ```
+
+`degraded: true` is expected in SQLite-only mode when optional Qdrant is not configured.
 
 ## Known working clients
 

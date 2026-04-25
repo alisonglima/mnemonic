@@ -50,13 +50,27 @@ class _FakeQdrantClient:
         allowed_scope = None
         allowed_types = None
         if query_filter:
-            allowed_statuses = {condition["match"] for condition in query_filter if condition["key"] == "status"}
-            namespaces = {condition["match"] for condition in query_filter if condition["key"] == "namespace"}
-            scopes = {condition["match"] for condition in query_filter if condition["key"] == "scope_id"}
-            types = {condition["match"] for condition in query_filter if condition["key"] == "type"}
+            must_conditions = query_filter.must if hasattr(query_filter, "must") else query_filter.get("must", [])
+
+            def _key_match(condition):
+                if hasattr(condition, "key"):
+                    match = condition.match
+                    if hasattr(match, "any"):
+                        return condition.key, {"any": match.any}
+                    return condition.key, {"value": match.value}
+                return condition["key"], condition["match"]
+
+            key_matches = [_key_match(condition) for condition in must_conditions]
+            status_any = {v for k, m in key_matches for v in m.get("any", []) if k == "status"}
+            status_value = {m.get("value") for k, m in key_matches if k == "status" and "value" in m}
+            allowed_statuses = status_any | status_value if status_any or status_value else None
+            namespaces = {m.get("value") for k, m in key_matches if k == "namespace" and "value" in m}
+            scopes = {m.get("value") for k, m in key_matches if k == "scope_id" and "value" in m}
+            types_any = {v for k, m in key_matches for v in m.get("any", []) if k == "type"}
+            types_value = {m.get("value") for k, m in key_matches if k == "type" and "value" in m}
+            allowed_types = (types_any | types_value) or None
             allowed_namespace = next(iter(namespaces)) if namespaces else None
             allowed_scope = next(iter(scopes)) if scopes else None
-            allowed_types = types or None
         for point in self.points.values():
             payload = point["payload"]
             if allowed_statuses and payload.get("status") not in allowed_statuses:
@@ -187,6 +201,37 @@ class SearchTests(unittest.TestCase):
         self.assertIn(matching.id, ids)
         self.assertNotIn(other_scope.id, ids)
         self.assertNotIn(other_type.id, ids)
+
+    def test_qdrant_query_uses_filter_shape_expected_by_client(self) -> None:
+        record = self.repo.create_memory(
+            content="Filter shape target",
+            type="decision",
+            namespace="project",
+            scope_id="mnemonic",
+            source="human",
+        )
+        fake_client = _FakeQdrantClient()
+        store = QdrantProjectionStore(enabled=True, url="http://fake", client=fake_client)
+        store.upsert(record)
+
+        store.query(
+            query="Filter shape target",
+            namespace="project",
+            scope_id="mnemonic",
+            types=["decision", "pattern"],
+            include_archived=True,
+            limit=5,
+        )
+
+        must_conditions = fake_client.last_filter.must
+        self.assertEqual(must_conditions[0].key, "status")
+        self.assertEqual(must_conditions[0].match.any, ["active", "archived"])
+        self.assertEqual(must_conditions[1].key, "namespace")
+        self.assertEqual(must_conditions[1].match.value, "project")
+        self.assertEqual(must_conditions[2].key, "scope_id")
+        self.assertEqual(must_conditions[2].match.value, "mnemonic")
+        self.assertEqual(must_conditions[3].key, "type")
+        self.assertEqual(must_conditions[3].match.any, ["decision", "pattern"])
 
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ def docker_health(sqlite_path: Path | str, settings: Settings | None = None) -> 
 
 def _qdrant_check(url: str) -> str:
     try:
-        with urlopen(f"{url}/health", timeout=2) as resp:
+        with urlopen(f"{url}/healthz", timeout=2) as resp:
             if 200 <= resp.status < 300:
                 return "up"
             return "down"

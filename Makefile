@@ -3,7 +3,7 @@
 #
 # Usage: make <target>
 
-.PHONY: setup test run docker-up docker-down reindex backup restore lint format help
+.PHONY: setup test test-e2e run docker-up docker-down reindex backup restore lint format help
 
 # Detect sed -i flavour: GNU uses "-i", BSD/macOS uses "-i ''"
 SED_I := $(shell sed --version 2>/dev/null | grep -q GNU && echo "-i" || echo "-i ''")
@@ -27,6 +27,9 @@ setup: ## Install dependencies (editable)
 
 test: ## Run unit tests
 	PYTHONPATH=$(SRC) $(PYTHON) -m pytest $(TESTS) -q
+
+test-e2e: ## Run Docker-backed MCP integration tests
+	RUN_DOCKER_E2E=1 PYTHONPATH=$(SRC) $(PYTHON) -m pytest $(TESTS)/test_docker_e2e.py -q
 
 run: ## Start MCP server locally (respects MCP_PORT from .env or env)
 	@if [ -f .env ]; then set -a; . .env; set +a; fi; \

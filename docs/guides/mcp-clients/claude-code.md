@@ -13,8 +13,8 @@ Add to your project `.claude/settings.json` or global `~/.claude/settings.json`:
 {
   "mcpServers": {
     "memory": {
-      "type": "http",
-      "url": "http://localhost:8080"
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
     }
   }
 }
@@ -23,7 +23,7 @@ Add to your project `.claude/settings.json` or global `~/.claude/settings.json`:
 Alternatively, add via the CLI:
 
 ```bash
-claude mcp add memory --transport http http://localhost:8080
+claude mcp add memory --transport sse http://localhost:8080/sse
 ```
 
 ## Verify connection
