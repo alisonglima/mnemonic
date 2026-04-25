@@ -36,3 +36,43 @@ For automated backups, add a cron job or systemd timer:
 ```
 
 Or mount a volume snapshot at `./data` to capture consistent snapshots at the infrastructure level.
+
+## Restore from backup
+
+If data loss occurs, restore from the backup file:
+
+```bash
+make restore
+```
+
+This runs `restore_sqlite.py`, which copies `SQLITE_PATH.backup.db` back to `SQLITE_PATH`. After restoring, rebuild Qdrant and Obsidian projections:
+
+```bash
+make reindex
+```
+
+### Restore with explicit paths
+
+To restore a specific backup file to a specific location:
+
+```bash
+python mcp-memory/scripts/restore_sqlite.py /path/to/backup.backup.db /path/to/target.db
+```
+
+### What is restored
+
+The restore operation copies the backup file directly to the target path. It includes:
+- All memory records
+- Revision history
+- Outbox events
+- Projection state
+
+After restore, run `make reindex` to rebuild Qdrant vector projections and Obsidian files from the restored SQLite data.
+
+### Verify before restoring
+
+Always verify the backup file exists and is non-empty before restoring:
+
+```bash
+ls -la ./data/memory.backup.db
+```
