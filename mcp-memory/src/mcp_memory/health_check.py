@@ -7,6 +7,24 @@ from urllib.request import urlopen
 from mcp_memory.config import Settings
 
 
+def check(sqlite_path: Path | str) -> int:
+    """
+    Docker healthcheck-compatible exit code check.
+    Returns 0 if database exists and is accessible, 1 otherwise.
+    """
+    sqlite_path = Path(sqlite_path)
+    if not sqlite_path.exists():
+        return 1
+    try:
+        with open(sqlite_path, "rb") as f:
+            header = f.read(16)
+        if header != b"SQLite format 3\x00":
+            return 1
+    except OSError:
+        return 1
+    return 0
+
+
 def docker_health(sqlite_path: Path | str, settings: Settings | None = None) -> Dict[str, str]:
     """
     Docker-oriented health check that matches HealthService status keys.
@@ -69,5 +87,7 @@ if __name__ == "__main__":
     import sys
 
     sqlite_path = sys.argv[1] if len(sys.argv) > 1 else "./data/memory.db"
+    exit_code = check(sqlite_path)
     result = docker_health(sqlite_path)
     print(json.dumps(result, indent=2))
+    raise SystemExit(exit_code)

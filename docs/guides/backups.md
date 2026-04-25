@@ -59,6 +59,30 @@ To restore a specific backup file to a specific location:
 python mcp-memory/scripts/restore_sqlite.py /path/to/backup.backup.db /path/to/target.db
 ```
 
+### Restore options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Validate source but do not copy |
+| `--no-backup` | Skip pre-restore backup of existing target |
+
+**Dry run** is useful to verify a backup is valid before restoring:
+
+```bash
+python mcp-memory/scripts/restore_sqlite.py /path/to/backup.backup.db /path/to/target.db --dry-run
+```
+
+**Pre-restore backup**: Before overwriting the target, the script automatically backs up the existing target to `target.pre-restore.db`. Use `--no-backup` to skip this.
+
+### Restore exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Source backup not found |
+| 2 | Source failed validation (PRAGMA integrity_check) |
+| 3 | Pre-restore backup of existing target failed |
+
 ### What is restored
 
 The restore operation copies the backup file directly to the target path. It includes:
