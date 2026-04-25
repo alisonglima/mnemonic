@@ -5,6 +5,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from typing import Callable, List, Optional
 
+from mcp_memory.embedding import EmbeddingProvider, HashEmbeddingProvider
 from mcp_memory.models import MemoryRecord, SearchHit
 
 try:
@@ -33,13 +34,27 @@ class QdrantProjectionStore:
         vector_size: int = 8,
         client=None,
         embedder: Optional[Callable[[str], List[float]]] = None,
+        embedding_provider: Optional[EmbeddingProvider] = None,
+        vector_strategy: str = "hash",
     ):
         self.enabled = enabled
         self.url = url.rstrip("/")
         self.supported = client is not None or QdrantClient is not None
         self.collection_name = collection_name
         self.vector_size = vector_size
-        self._embedder = embedder or (lambda text: simple_embed(text, size=vector_size))
+        self.vector_strategy = vector_strategy
+
+        # Embedding provider takes precedence over simple embedder callable
+        if embedding_provider is not None:
+            self._embedding_provider = embedding_provider
+            self._embedder = embedding_provider.embed
+        elif embedder is not None:
+            self._embedder = embedder
+            self._embedding_provider = None
+        else:
+            self._embedding_provider = HashEmbeddingProvider(size=vector_size)
+            self._embedder = self._embedding_provider.embed
+
         if client is not None:
             self.client = client
         elif self.enabled and self.url and QdrantClient is not None:

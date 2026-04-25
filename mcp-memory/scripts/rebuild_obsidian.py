@@ -13,7 +13,8 @@ def main() -> int:
     repository = MemoryRepository(db)
     obsidian = ObsidianProjectionStore(settings.vault_path)
     for record in repository.list_records():
-        if record.obsidian_projection and record.status != "deleted":
+        # Materialize all records with obsidian projection enabled, across all statuses
+        if record.obsidian_projection:
             obsidian.materialize_journal(record)
             repository.set_projection_version(record.id, "obsidian", record.version)
     return 0

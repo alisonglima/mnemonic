@@ -14,6 +14,15 @@ class Settings(BaseModel):
     qdrant_collection: str = "memory_records"
     ollama_url: str = ""
 
+    # Embedding configuration
+    embedding_strategy: str = "hash"  # "hash" or "ollama"
+    embedding_model: str = "nomic-embed-text"
+
+    # Namespace and retention configuration
+    default_namespace: str = "default"
+    retention_action: str = "delete"  # "delete" or "archive"
+    retention_days: int = 30
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
@@ -23,4 +32,9 @@ class Settings(BaseModel):
             qdrant_url=os.getenv("QDRANT_URL", ""),
             qdrant_collection=os.getenv("QDRANT_COLLECTION", "memory_records"),
             ollama_url=os.getenv("OLLAMA_URL", ""),
+            embedding_strategy=os.getenv("EMBEDDING_STRATEGY", "hash"),
+            embedding_model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
+            default_namespace=os.getenv("DEFAULT_NAMESPACE", "default"),
+            retention_action=os.getenv("RETENTION_ACTION", "delete"),
+            retention_days=int(os.getenv("RETENTION_DAYS", "30")),
         )

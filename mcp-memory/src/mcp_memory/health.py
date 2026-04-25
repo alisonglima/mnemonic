@@ -20,6 +20,8 @@ class HealthService:
         vault_up = Path(self.settings.vault_path).exists()
         qdrant_status = self.qdrant_store.health()
         ollama_status = self._ollama_status()
+        vector_strategy = self.settings.embedding_strategy
+        embedding_degraded = ollama_status == "down" and vector_strategy == "ollama"
         return {
             "sqlite": "up" if sqlite_up else "down",
             "qdrant": qdrant_status,
@@ -27,6 +29,8 @@ class HealthService:
             "worker": "up",
             "obsidian_projection": "up" if vault_up else "down",
             "degraded": qdrant_status != "up" or not vault_up,
+            "vector_strategy": vector_strategy,
+            "embedding_degraded": embedding_degraded,
             "pending_events": self.repository.pending_outbox_count(),
             "oldest_pending_age_seconds": self.repository.oldest_pending_age_seconds(),
         }
