@@ -9,7 +9,7 @@ Thank you for your interest in contributing to Mnemonic.
 3. **Run locally** — set up your environment:
    ```bash
    cp .env.example .env
-   make run
+   make setup
    ```
 4. **Run tests** — confirm the existing suite passes before making changes:
    ```bash

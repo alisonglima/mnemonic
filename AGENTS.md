@@ -9,6 +9,9 @@ mcp-memory/
   src/mcp_memory/     # Python package — all runtime code lives here
     config.py         # Settings (pydantic, reads from env vars)
     database.py       # SQLite connection + migration runner
+    errors.py         # Domain exceptions: NotFoundError, VersionConflictError, InvalidRequestError
+    health.py         # HealthService — status check
+    logging.py        # Logging configuration
     migrations.py     # Schema version history
     models.py         # Pydantic models: MemoryRecord, SearchResult, etc.
     repository.py     # CRUD + search on SQLite
@@ -16,10 +19,9 @@ mcp-memory/
     qdrant_store.py   # QdrantProjectionStore — vector projection (optional)
     obsidian_store.py # ObsidianProjectionStore — Markdown projection (optional)
     outbox.py         # OutboxWorker — async projection pipeline
-    health.py         # HealthService — status check
     tools.py          # MemoryTools — business logic called by MCP handlers
     main.py           # FastMCP server, tool registration, CLI entry point
-  scripts/            # Maintenance scripts (backup, restore, reindex, rebuild)
+  scripts/            # Maintenance scripts (backup, reindex, rebuild, init_db)
   tests/              # Unit tests
 docs/                 # User-facing documentation
 ```

@@ -7,7 +7,7 @@
 
 ## Configuration
 
-Add to your Codex MCP configuration:
+Add to your Codex MCP configuration (typically `~/.codex/config.json` or a project-level `.codex/config.json`):
 
 ```json
 {

@@ -28,7 +28,7 @@
 | CI pipeline and contribution templates | Implemented | `.github/workflows/ci.yml` runs pytest + Docker build |
 | Public issue and PR hygiene | Implemented | Issue templates and PR template in `.github/` |
 | Stable README, license, and governance files | Implemented | `README.md`, `LICENSE`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CONTRIBUTING.md` |
-| Improved MCP client integration guides | Planned | Phase 1 of improve-roadmap-readiness |
+| Improved MCP client integration guides | Implemented | Per-client guides in `docs/guides/mcp-clients/` |
 | Reliable Docker Compose with health checks | Planned | Phase 2 of improve-roadmap-readiness |
 | Verified backup and restore tooling | Partial | Backup implemented; restore planned in Phase 2 |
 | Batch MCP operations and advanced queries | Planned | Phase 3 of improve-roadmap-readiness |
