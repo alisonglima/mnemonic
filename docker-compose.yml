@@ -1,0 +1,24 @@
+services:
+  mcp-memory:
+    build: ./mcp-memory
+    environment:
+      SQLITE_PATH: /data/memory.db
+      OBSIDIAN_VAULT: /vault
+      MCP_PORT: "8080"
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ./data:/data
+      - ./obsidian-vault:/vault
+    ports:
+      - "8080:8080"
+    depends_on:
+      - qdrant
+      - ollama
+    command: ["python", "-m", "mcp_memory.main", "--host", "0.0.0.0", "--port", "8080", "--serve"]
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+
+  ollama:
+    image: ollama/ollama:0.6.8
