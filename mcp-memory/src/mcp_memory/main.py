@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
 
 from fastmcp import FastMCP
 from mcp_memory.config import Settings
 from mcp_memory.database import Database
+from mcp_memory.embedding import EmbeddingConfig, create_embedding_provider
 from mcp_memory.errors import InvalidRequestError, MemoryError, NotFoundError, VersionConflictError
 from mcp_memory.qdrant_store import QdrantProjectionStore
 from mcp_memory.repository import MemoryRepository
@@ -26,10 +28,21 @@ def build_tools() -> MemoryTools:
     db = Database(settings.database_path)
     db.initialize()
     repository = MemoryRepository(db)
+
+    # Create embedding configuration and provider
+    embedding_config = EmbeddingConfig(
+        ollama_url=settings.ollama_url,
+        embedding_model=settings.embedding_model,
+        embedding_strategy=settings.embedding_strategy,
+    )
+    embedding_provider = create_embedding_provider(embedding_config)
+
     qdrant_store = QdrantProjectionStore(
         enabled=bool(settings.qdrant_url),
         url=settings.qdrant_url,
         collection_name=settings.qdrant_collection,
+        embedding_provider=embedding_provider,
+        vector_strategy=settings.embedding_strategy,
     )
     return MemoryTools(settings, repository, SearchService(repository, qdrant_store))
 
@@ -160,6 +173,13 @@ def build_mcp_server() -> FastMCP:
 def main() -> int:
     args = build_parser().parse_args()
     if args.serve:
+        settings = Settings.from_env()
+        print(f"Starting mcp-memory on {args.host}:{args.port}", file=sys.stderr)
+        print(f"  SQLite: {settings.database_path}", file=sys.stderr)
+        print(f"  Obsidian vault: {settings.vault_path}", file=sys.stderr)
+        print(f"  Qdrant: {settings.qdrant_url or 'disabled'}", file=sys.stderr)
+        print(f"  Embedding strategy: {settings.embedding_strategy}", file=sys.stderr)
+        print(f"  Embedding model: {settings.embedding_model}", file=sys.stderr)
         stop_event = threading.Event()
         worker = threading.Thread(target=run_worker, args=(stop_event,), daemon=True)
         worker.start()
