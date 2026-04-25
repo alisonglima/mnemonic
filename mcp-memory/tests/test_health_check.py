@@ -52,6 +52,25 @@ class TestHealthCheck(unittest.TestCase):
         result = docker_health(sqlite_path=db_path)
         self.assertEqual(result["sqlite"], "down")
 
+    def test_qdrant_check_uses_healthz_endpoint(self) -> None:
+        """Qdrant Docker health should use the endpoint exposed by the image."""
+        from mcp_memory.health_check import _qdrant_check
+
+        class _Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        with patch("mcp_memory.health_check.urlopen", return_value=_Response()) as urlopen:
+            result = _qdrant_check("http://qdrant:6333")
+
+        self.assertEqual(result, "up")
+        urlopen.assert_called_once_with("http://qdrant:6333/healthz", timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()
