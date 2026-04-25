@@ -32,7 +32,11 @@ class _FakeQdrantClient:
 
     def upsert(self, *, collection_name: str, wait: bool, points):
         for point in points:
-            self.points[str(point["id"])] = point
+            # Accept both dict points and qdrant-client PointStruct-like objects
+            if hasattr(point, "id"):
+                self.points[str(point.id)] = {"id": point.id, "vector": point.vector, "payload": point.payload}
+            else:
+                self.points[str(point["id"])] = point
 
     def delete(self, *, collection_name: str, points_selector, wait: bool):
         for point_id in points_selector["points"]:
