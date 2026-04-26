@@ -20,6 +20,9 @@ class Settings(BaseModel):
     embedding_model: str = "nomic-embed-text"
     embedding_size: int = 768  # Vector dimensions (768 for nomic-embed-text)
 
+    # Search configuration
+    search_score_threshold: float = 0.5  # min cosine similarity to include Qdrant hit
+
     # Namespace and retention configuration
     default_namespace: str = ""
     retention_action: Literal["archive", "none"] = "archive"
@@ -37,6 +40,7 @@ class Settings(BaseModel):
             embedding_strategy=os.getenv("EMBEDDING_STRATEGY", "hash"),
             embedding_model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
             embedding_size=int(os.getenv("EMBEDDING_SIZE", "768")),
+            search_score_threshold=float(os.getenv("SEARCH_SCORE_THRESHOLD", "0.5")),
             default_namespace=os.getenv("DEFAULT_NAMESPACE", ""),
             retention_action=os.getenv("RETENTION_ACTION", "archive"),
             retention_days=int(os.getenv("RETENTION_DAYS", "30")),

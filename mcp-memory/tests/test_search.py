@@ -202,6 +202,38 @@ class SearchTests(unittest.TestCase):
         self.assertNotIn(other_scope.id, ids)
         self.assertNotIn(other_type.id, ids)
 
+    def test_query_passes_score_threshold_to_qdrant(self):
+        """QdrantProjectionStore.query() must pass score_threshold to qdrant client."""
+        from unittest.mock import MagicMock
+        from mcp_memory.embedding import HashEmbeddingProvider
+
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+        mock_client.query_points.return_value = MagicMock(points=[])
+
+        store = QdrantProjectionStore(
+            enabled=True,
+            url="http://localhost:6333",
+            client=mock_client,
+            embedding_provider=HashEmbeddingProvider(size=8),
+            vector_strategy="hash",
+        )
+
+        store.query(
+            query="test",
+            namespace="ns",
+            scope_id=None,
+            types=None,
+            include_archived=False,
+            limit=5,
+            score_threshold=0.7,
+        )
+
+        call_kwargs = mock_client.query_points.call_args.kwargs
+        assert call_kwargs.get("score_threshold") == 0.7, (
+            f"score_threshold not passed to qdrant. Got kwargs: {call_kwargs}"
+        )
+
     def test_qdrant_query_uses_filter_shape_expected_by_client(self) -> None:
         record = self.repo.create_memory(
             content="Filter shape target",

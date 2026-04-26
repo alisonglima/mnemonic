@@ -12,7 +12,7 @@ class TestSettings(unittest.TestCase):
     def setUp(self) -> None:
         self.env_to_restore = os.environ.get("SQLITE_PATH")
         # Clear any existing env vars that might interfere
-        for key in ["SQLITE_PATH", "OBSIDIAN_VAULT", "MCP_PORT", "QDRANT_URL", "QDRANT_COLLECTION", "OLLAMA_URL", "EMBEDDING_STRATEGY", "EMBEDDING_MODEL", "DEFAULT_NAMESPACE", "RETENTION_ACTION", "RETENTION_DAYS"]:
+        for key in ["SQLITE_PATH", "OBSIDIAN_VAULT", "MCP_PORT", "QDRANT_URL", "QDRANT_COLLECTION", "OLLAMA_URL", "EMBEDDING_STRATEGY", "EMBEDDING_MODEL", "DEFAULT_NAMESPACE", "RETENTION_ACTION", "RETENTION_DAYS", "SEARCH_SCORE_THRESHOLD"]:
             if key in os.environ:
                 del os.environ[key]
 
@@ -83,6 +83,15 @@ class TestSettings(unittest.TestCase):
         os.environ["OLLAMA_URL"] = "http://localhost:11434"
         settings = Settings.from_env()
         self.assertEqual(settings.ollama_url, "http://localhost:11434")
+
+    def test_search_score_threshold_default(self) -> None:
+        settings = Settings.from_env()
+        self.assertAlmostEqual(settings.search_score_threshold, 0.5)
+
+    def test_env_override_search_score_threshold(self) -> None:
+        os.environ["SEARCH_SCORE_THRESHOLD"] = "0.7"
+        settings = Settings.from_env()
+        self.assertAlmostEqual(settings.search_score_threshold, 0.7)
 
 
 if __name__ == "__main__":

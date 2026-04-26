@@ -45,7 +45,7 @@ def build_tools() -> MemoryTools:
         embedding_provider=embedding_provider,
         vector_strategy=settings.embedding_strategy,
     )
-    return MemoryTools(settings, repository, SearchService(repository, qdrant_store))
+    return MemoryTools(settings, repository, SearchService(repository, qdrant_store, score_threshold=settings.search_score_threshold))
 
 
 def run_worker(stop_event: threading.Event) -> None:
