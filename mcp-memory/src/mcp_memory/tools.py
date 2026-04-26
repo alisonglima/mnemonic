@@ -165,6 +165,12 @@ class MemoryTools:
         self.worker.process_pending()
         return {"record": record}
 
+    def delete_by_tag(self, tag: str, namespace: Optional[str] = None) -> Dict[str, Any]:
+        """Delete all records containing a specific tag. Returns count of deleted records."""
+        deleted = self.repository.delete_by_tag(tag, namespace=namespace)
+        self.worker.process_pending()
+        return {"deleted_count": deleted}
+
     def add_tags(self, id: str, tags: List[str]) -> Dict[str, Any]:
         record = self.repository.add_tags(id, tags)
         self.worker.process_pending()

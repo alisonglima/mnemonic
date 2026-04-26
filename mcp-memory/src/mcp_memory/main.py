@@ -167,6 +167,10 @@ def build_mcp_server() -> FastMCP:
     def memory_batch_update_tags(updates: list):
         return safe_call(tools.batch_update_tags, updates=updates)
 
+    @mcp.tool(name="memory.delete_by_tag")
+    def memory_delete_by_tag(tag: str, namespace: str = None):
+        return safe_call(tools.delete_by_tag, tag=tag, namespace=namespace)
+
     return mcp
 
 

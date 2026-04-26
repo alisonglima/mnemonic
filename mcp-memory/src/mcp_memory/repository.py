@@ -295,6 +295,34 @@ class MemoryRepository:
             rows = connection.execute("SELECT * FROM memory_records ORDER BY created_at ASC").fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def delete_by_tag(self, tag: str, namespace: Optional[str] = None) -> int:
+        """Delete all records containing a specific tag. Returns count of deleted records."""
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if namespace:
+                rows = connection.execute(
+                    "SELECT * FROM memory_records WHERE namespace = ? AND status != 'deleted'",
+                    (namespace,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM memory_records WHERE status != 'deleted'"
+                ).fetchall()
+
+            deleted = 0
+            for row in rows:
+                record = self._row_to_record(row)
+                if tag in record.tags:
+                    self._mutate_record_in_connection(
+                        connection,
+                        record,
+                        new_status="deleted",
+                        change_reason=f"cleanup_tag:{tag}",
+                        expected_version=record.version,
+                    )
+                    deleted += 1
+            return deleted
+
     def list_pending_outbox(self) -> List[OutboxEvent]:
         with self.database.connect() as connection:
             rows = connection.execute(
