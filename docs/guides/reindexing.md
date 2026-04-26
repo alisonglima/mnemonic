@@ -44,3 +44,16 @@ PYTHONPATH=mcp-memory/src python3 mcp-memory/scripts/rebuild_obsidian.py
 ## Idempotency
 
 Both scripts are idempotent. Running them multiple times is safe. They update the `memory_projections` table so subsequent runs skip already-synced records.
+
+## FTS5 full-text search index
+
+Mnemonic maintains an FTS5 virtual table (`memory_fts`) for keyword search. This is used automatically when Qdrant is unavailable or stale (>10s behind).
+
+```bash
+PYTHONPATH=mcp-memory/src python3 mcp-memory/scripts/rebuild_fts.py
+```
+
+For Docker:
+```bash
+docker compose exec mcp-memory python mcp-memory/scripts/rebuild_fts.py
+```

@@ -26,11 +26,28 @@ HTTP Request (memory.search)
               ├── if include_retracted=True:
               │     └── MemoryRepository.search_records()   [SQLite only, return]
               ├── QdrantProjectionStore.is_available()?
-              │     └── yes: QdrantProjectionStore.query()  [approximate similarity lookup]
-              └── MemoryRepository.search_records()         [SQLite text search]
+              │     ├── yes, fresh: QdrantProjectionStore.query()  [approximate similarity lookup]
+              │     │                     + MemoryRepository.search_records()
+              │     │                     → search_mode: "hybrid"
+              │     └── yes, stale (>10s) OR unavailable:
+              │                     └── MemoryRepository.search_fts()  [FTS5 BM25 keyword search]
+              │                     → search_mode: "fts_sqlite", degraded: true
+              └── MemoryRepository.search_records()         [SQLite text search, fallback]
               └── merge results by id, respecting limit
-              └── return search_mode: "hybrid" | "fallback_sqlite"
+              └── return SearchResult(search_mode, degraded, freshness_seconds)
 ```
+
+### Search modes
+
+| Mode | Condition | Degraded |
+|------|-----------|----------|
+| `hybrid` | Qdrant available and fresh (<10s staleness) | `false` |
+| `fts_sqlite` | Qdrant unavailable or stale (>10s behind) | `true` |
+| `fallback_sqlite` | Query has status/date filters or offset > 0 | `false` |
+
+### FTS5 fallback
+
+FTS5 provides BM25-ranked full-text search over record content and tags. It is used automatically when the outbox worker falls behind (>10s). The FTS5 index is synced on every write via `_sync_fts()`. Run `scripts/rebuild_fts.py` to backfill after bulk operations.
 
 ## Projection versioning
 
