@@ -10,6 +10,7 @@ services:
       EMBEDDING_STRATEGY: ollama
       EMBEDDING_MODEL: nomic-embed-text
       EMBEDDING_SIZE: "768"
+      SEARCH_SCORE_THRESHOLD: "0.5"
     volumes:
       - ./data:/data
       - ./obsidian-vault:/vault
