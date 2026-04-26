@@ -646,9 +646,10 @@ def reschedule_outbox_event(self, event_id: str, delay_seconds: int, error: str 
 
         if new_attempts >= MAX_EMBEDDING_RETRIES:
             # Dead-letter: mark error and stop retrying
+            # Fix: set processed_at so worker doesn't re-poll this event indefinitely
             conn.execute(
-                "UPDATE memory_outbox SET error = ?, attempt_count = ? WHERE id = ?",
-                (f"DEAD_LETTER: {error}", new_attempts, event_id)
+                "UPDATE memory_outbox SET processed_at = ?, error = ?, attempt_count = ? WHERE id = ?",
+                (_now(), f"DEAD_LETTER: {error}", new_attempts, event_id)
             )
             conn.execute(
                 "UPDATE memory_projections SET qdrant_status = 'error', last_error = ? WHERE memory_id = ?",
