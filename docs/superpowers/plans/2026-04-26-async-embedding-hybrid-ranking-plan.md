@@ -611,11 +611,19 @@ def test_reschedule_outbox_event_dead_letters_after_max_retries(repo):
         repo.reschedule_outbox_event(event.id, delay_seconds=0, error="Ollama down")
 
     # After max retries, event should be dead-lettered
-    pending = repo.list_pending_outbox()
-    refreshed = next((e for e in pending if e.id == event.id), None)
-    assert refreshed is not None, "Event should still exist in pending"
-    assert refreshed.attempt_count == MAX_EMBEDDING_RETRIES
-    assert "DEAD_LETTER" in (refreshed.error or "")
+    # Verify via direct DB query — processed_at now set (suppressed from re-pickup)
+    with repo.database.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM memory_outbox WHERE id = ?", (event.id,)
+        ).fetchone()
+    assert row is not None
+    assert row["attempt_count"] == MAX_EMBEDDING_RETRIES
+    assert "DEAD_LETTER" in (row["error"] or "")
+    assert row["processed_at"] is not None, "Dead-lettered event must have processed_at set"
+
+    # Verify suppression — event NOT in due outbox (worker cannot re-poll)
+    due = repo.list_due_outbox()
+    assert not any(e.id == event.id for e in due), "Dead-lettered event must not be re-polled"
 
     state = repo.get_projection_state(record.id)
     assert state["qdrant_status"] == "error"
