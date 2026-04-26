@@ -58,6 +58,7 @@ class SearchResult(BaseModel):
     items: List[MemoryRecord]
     search_mode: str
     degraded: bool
+    freshness_seconds: int = 0
 
 
 class SearchHit(BaseModel):

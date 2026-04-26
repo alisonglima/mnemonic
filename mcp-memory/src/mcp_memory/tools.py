@@ -67,6 +67,7 @@ class MemoryTools:
             "items": result.items,
             "search_mode": result.search_mode,
             "degraded": result.degraded,
+            "freshness_seconds": result.freshness_seconds,
         }
 
     def write(
