@@ -151,6 +151,30 @@ def get_projection_state(self, memory_id: str) -> Dict[str, Any]:
     }
 ```
 
+**C) Add `update_projection_state`** (repository.py) — used by Task 5 and Task 6:
+
+```python
+# repository.py — add update_projection_state
+def update_projection_state(self, memory_id: str, **kwargs) -> None:
+    """Update projection state columns. kwargs keys must match column names."""
+    allowed = {
+        "qdrant_version", "qdrant_status", "qdrant_content_hash",
+        "qdrant_embedding_fingerprint", "last_error",
+        "obsidian_version", "obsidian_status",
+    }
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [memory_id]
+    with self.database.connect() as conn:
+        conn.execute(
+            f"UPDATE memory_projections SET {set_clause} WHERE memory_id = ?",
+            values,
+        )
+        conn.commit()
+```
+
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
