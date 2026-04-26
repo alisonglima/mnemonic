@@ -66,3 +66,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
   tokenize='unicode61'
 );
 """
+
+MIGRATIONS = [
+    {
+        "version": 1,
+        "sql": SCHEMA,
+    },
+    {
+        "version": 2,
+        "sql": """
+            ALTER TABLE memory_projections
+            ADD COLUMN qdrant_content_hash TEXT;
+
+            ALTER TABLE memory_projections
+            ADD COLUMN qdrant_embedding_fingerprint TEXT;
+        """,
+    },
+]
+
+CURRENT_SCHEMA_VERSION = MIGRATIONS[-1]["version"]

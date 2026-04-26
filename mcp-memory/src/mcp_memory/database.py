@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from mcp_memory.migrations import SCHEMA
+from mcp_memory.migrations import MIGRATIONS
 
 
 class Database:
@@ -17,6 +17,18 @@ class Database:
         return connection
 
     def initialize(self) -> None:
-        with self.connect() as connection:
-            connection.executescript(SCHEMA)
-            connection.commit()
+        with self.connect() as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+            for migration in MIGRATIONS:
+                migration_version = int(migration["version"])
+                if migration_version <= version:
+                    continue
+
+                conn.executescript(f"""
+BEGIN IMMEDIATE;
+{migration["sql"]}
+PRAGMA user_version = {migration_version};
+COMMIT;
+""")
+                version = migration_version
