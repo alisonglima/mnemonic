@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from mcp_memory.models import MemoryRecord, SearchResult
 from mcp_memory.qdrant_store import QdrantProjectionStore
@@ -10,6 +10,82 @@ from mcp_memory.repository import MemoryRepository
 
 # Freshness threshold in seconds — if Qdrant projection is older than this, use SQLite fallback
 QRANT_STALENESS_THRESHOLD_SECONDS = 10
+
+
+def expand_query(query: str) -> str:
+    """Deterministically expand query for FTS5. Returns FTS query string with OR."""
+    if not query or not query.strip():
+        return query
+
+    expansions = [query]
+
+    # Singular/plural
+    if query.endswith('s') and len(query) > 2:
+        expansions.append(query[:-1])
+    elif not query.endswith('s'):
+        expansions.append(query + 's')
+
+    # Common agent synonyms
+    synonyms = {
+        'db': ['database', 'postgres', 'postgresql'],
+        'embed': ['embedding', 'embedded', 'embeddings'],
+        'decision': ['adr', 'architecture decision'],
+        'mem': ['memory', 'persistent'],
+        'config': ['configuration'],
+        'auth': ['authentication', 'authorization'],
+        'api': ['interface'],
+    }
+    query_lower = query.lower()
+    for term, syns in synonyms.items():
+        if term in query_lower:
+            expansions.extend(syns)
+
+    # Path tokenization
+    import re
+    if '/' in query or '_' in query:
+        tokens = re.split(r'[/_\-\.]+', query)
+        expansions.extend([t for t in tokens if len(t) > 1])
+
+    # Deduplicate
+    seen = set()
+    unique = []
+    for e in expansions:
+        if e not in seen:
+            seen.add(e)
+            unique.append(e)
+
+    # Return FTS OR query string
+    return " OR ".join(unique)
+
+
+def rrf_fusion(
+    fts_results: List[Tuple[str, float]],  # (memory_id, bm25_rank)
+    vector_ids: List[str],  # memory_ids in rank order
+    k: int = 60,
+) -> List[str]:
+    """Reciprocal Rank Fusion over FTS and vector results.
+
+    Args:
+        fts_results: List of (memory_id, bm25_rank) from search_fts
+        vector_ids: List of memory_ids from Qdrant (ordered by cosine similarity)
+        k: RRF smoothing parameter (default 60)
+
+    Returns:
+        List of memory_ids sorted by fused RRF score (descending)
+    """
+    from typing import Dict
+    scores: Dict[str, float] = {}
+
+    # FTS: rank by position (lower bm25 = better, but position matters more)
+    for rank, (memory_id, _) in enumerate(fts_results):
+        scores[memory_id] = scores.get(memory_id, 0) + 1 / (k + rank)
+
+    # Vector: rank by position
+    for rank, memory_id in enumerate(vector_ids):
+        scores[memory_id] = scores.get(memory_id, 0) + 1 / (k + rank)
+
+    # Sort by fused score descending
+    return sorted(scores.keys(), key=lambda id: scores[id], reverse=True)
 
 
 class SearchService:
@@ -65,50 +141,51 @@ class SearchService:
         freshness_seconds = self._qdrant_freshness_seconds()
         qdrant_stale = freshness_seconds > QRANT_STALENESS_THRESHOLD_SECONDS
 
-        # Always use SQLite as the authoritative source for results
-        items = self.repository.search_records(
-            query=query, namespace=namespace, scope_id=scope_id, types=types,
-            include_archived=include_archived, include_retracted=False,
-            limit=limit, offset=offset,
-        )
-
         if not qdrant_available or qdrant_stale:
-            # Qdrant unavailable or too stale — use FTS5 for better full-text search
-            fts_ids = self.repository.search_fts(query=query, namespace=namespace, limit=limit * 3)
-            merged: "OrderedDict[str, MemoryRecord]" = OrderedDict()
-            for memory_id in fts_ids:
-                record = self.repository.get_memory(memory_id)
-                if record and record.status in {"active", "archived"}:
-                    merged[record.id] = record
-            degraded = qdrant_stale or (not qdrant_available and self.qdrant_store.enabled)
+            # FTS-only mode — expand query here before calling search_fts
+            fts_query = expand_query(query)
+            fts_results = self.repository.search_fts(
+                query=fts_query, namespace=namespace, limit=limit * 3,
+                scope_id=scope_id, types=types, status=status,
+                include_archived=include_archived,
+            )
+            memory_ids = [id for id, _ in fts_results]
+            records = self.repository.get_memory_bulk(memory_ids) if memory_ids else []
             return SearchResult(
-                items=list(merged.values())[:limit],
+                items=records[:limit],
                 search_mode="fts_sqlite",
-                degraded=degraded,
+                degraded=qdrant_stale or (not qdrant_available and self.qdrant_store.enabled),
                 freshness_seconds=freshness_seconds,
             )
 
-        # Qdrant is available and fresh — use hybrid merge
-        qdrant_hits = self.qdrant_store.query(
-            query=query,
-            namespace=namespace,
-            scope_id=scope_id,
-            types=types,
+        # Hybrid RRF mode — expand query once, use for both paths
+        fts_query = expand_query(query)
+
+        fts_results = self.repository.search_fts(
+            query=fts_query, namespace=namespace, limit=50,
+            scope_id=scope_id, types=types, status="active",
             include_archived=include_archived,
-            limit=limit,
-            score_threshold=self.score_threshold,
         )
 
-        merged: "OrderedDict[str, MemoryRecord]" = OrderedDict()
-        for hit in qdrant_hits:
-            record = self.repository.get_memory(hit.id)
-            if record is not None:
-                merged[record.id] = record
-        for record in items:
-            merged.setdefault(record.id, record)
+        vector_hits = self.qdrant_store.query(
+            query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
+            namespace=namespace, scope_id=scope_id,
+            types=types, include_archived=include_archived, limit=50,
+            score_threshold=self.score_threshold,
+        )
+        vector_ids = [hit.id for hit in vector_hits]
+
+        # RRF fusion
+        fused_ids = rrf_fusion(fts_results, vector_ids, k=60)
+
+        # Bulk hydration
+        fused_records = self.repository.get_memory_bulk(fused_ids)
+        record_map = {r.id: r for r in fused_records if r is not None}
+        items = [record_map[id] for id in fused_ids if id in record_map][:limit]
+
         return SearchResult(
-            items=list(merged.values())[:limit],
-            search_mode="hybrid",
+            items=items,
+            search_mode="hybrid_rrf",
             degraded=False,
             freshness_seconds=freshness_seconds,
         )

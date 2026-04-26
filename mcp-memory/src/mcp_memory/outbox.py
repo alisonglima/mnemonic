@@ -25,6 +25,7 @@ class OutboxWorker:
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="outbox-"
         )
+        self._embedder = getattr(qdrant_store, "_embedder", lambda x: [0.0] * 8) if qdrant_store else lambda x: [0.0] * 8
 
     def record_projection_version(self, memory_id: str, projection: str, version: int) -> None:
         self.repository.set_projection_version(memory_id, projection, version)
@@ -81,14 +82,50 @@ class OutboxWorker:
         record = self.repository.get_memory(event.memory_id)
         if record is None:
             return
-        if record.status in {"active", "archived"}:
-            # A newer pending event means the record will change again soon.
-            # Skip the embedding to avoid wasting CPU on a state that will be superseded.
-            if self.repository.has_newer_pending_outbox_event(event.memory_id, event.target_version):
-                return
-            self.qdrant_store.upsert(record)
-        else:
+
+        if record.status not in {"active", "archived"}:
             self.qdrant_store.delete(record.id)
+            self.repository.mark_outbox_processed(event.id)
+            return
+
+        if self.repository.has_newer_pending_outbox_event(event.memory_id, event.target_version):
+            return
+
+        proj_state = self.repository.get_projection_state(event.memory_id)
+        fingerprint = self._embedding_fingerprint()
+
+        if (proj_state["qdrant_content_hash"] == record.content_hash and
+            proj_state["qdrant_embedding_fingerprint"] == fingerprint):
+            self.repository.mark_outbox_processed(event.id)
+            return
+
+        try:
+            vector = self._embedder(record.content)
+            self.qdrant_store.upsert_with_vector(record, vector)
+            self.repository.update_projection_state(
+                event.memory_id,
+                qdrant_version=event.target_version,
+                qdrant_content_hash=record.content_hash,
+                qdrant_embedding_fingerprint=fingerprint,
+                qdrant_status="ready",
+                last_error=None,
+            )
+            self.repository.mark_outbox_processed(event.id)
+        except Exception as exc:
+            self.repository.update_projection_state(
+                event.memory_id,
+                qdrant_status="error",
+                last_error=str(exc),
+            )
+            raise
+
+    def _embedding_fingerprint(self) -> str:
+        prov = getattr(self.qdrant_store, "_embedding_provider", None)
+        if prov is not None:
+            name = getattr(prov, "name", "unknown")
+            size = getattr(prov, "size", 0)
+            return f"{name}:{size}"
+        return "hash:8"
 
     def _project_obsidian(self, event: OutboxEvent) -> None:
         if self.obsidian_store is None:

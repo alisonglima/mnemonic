@@ -164,6 +164,31 @@ class QdrantProjectionStore:
                 points=[PointStruct(id=point["id"], vector=point["vector"], payload=point["payload"])],
             )
 
+    def upsert_with_vector(self, record: MemoryRecord, vector: List[float]) -> None:
+        if not self.is_available():
+            raise RuntimeError("qdrant unavailable")
+        self.ensure_collection()
+        point = {
+            "id": str(record.id),
+            "vector": vector,
+            "payload": {
+                "memory_id": record.id,
+                "namespace": record.namespace,
+                "scope_id": record.scope_id,
+                "type": record.type,
+                "status": record.status,
+                "version": record.version,
+            },
+        }
+        if PointStruct is None:
+            self.client.upsert(collection_name=self.collection_name, wait=True, points=[point])
+        else:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                wait=True,
+                points=[PointStruct(id=point["id"], vector=point["vector"], payload=point["payload"])],
+            )
+
     def delete(self, _memory_id: str) -> None:
         if not self.is_available():
             raise RuntimeError("qdrant unavailable")

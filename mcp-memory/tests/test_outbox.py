@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 from urllib.error import URLError
 
 from mcp_memory.database import Database
@@ -121,6 +122,97 @@ class OutboxTests(unittest.TestCase):
         state = self.repo.get_projection_state(record.id)
         self.assertEqual(state["obsidian_status"], "ready")
 
+    def test_project_qdrant_embeds_in_worker(self) -> None:
+        """_project_qdrant calls embedder and upsert_with_vector with pre-computed vector."""
+        mock_qdrant = MagicMock()
+        mock_qdrant.enabled = True
+        mock_qdrant.is_available.return_value = True
+        mock_qdrant._embedder = lambda x: [0.1] * 768
+
+        record = self.repo.create_memory(
+            content="Journal entry", type="decision", namespace="project",
+            scope_id="mnemonic", source="human",
+        )
+
+        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant, max_workers=1)
+        worker._embedder = lambda x: [0.1] * 768
+        worker._embedding_fingerprint = lambda: "ollama:nomic-embed-text:768"
+
+        event = self.repo.list_due_outbox()[0]
+        worker._project_qdrant(event)
+
+        mock_qdrant.upsert_with_vector.assert_called_once()
+        mock_qdrant.upsert.assert_not_called()
+
+    def test_project_qdrant_skips_when_hash_unmodified(self) -> None:
+        """When content_hash and fingerprint unchanged, skip embedding entirely."""
+        mock_qdrant = MagicMock()
+        mock_qdrant.enabled = True
+        mock_qdrant.is_available.return_value = True
+
+        record = self.repo.create_memory(
+            content="Journal entry", type="decision", namespace="project",
+            scope_id="mnemonic", source="human",
+        )
+
+        # Pre-set content_hash and fingerprint
+        db = Database(self.tmp_path / "memory.db")
+        with db.connect() as conn:
+            conn.execute("""
+                UPDATE memory_projections
+                SET qdrant_content_hash = ?, qdrant_embedding_fingerprint = ?
+                WHERE memory_id = ?
+            """, (record.content_hash, "ollama:nomic-embed-text:768", record.id))
+
+        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant, max_workers=1)
+        worker._embedder = lambda x: [0.1] * 768
+        worker._embedding_fingerprint = lambda: "ollama:nomic-embed-text:768"
+
+        event = self.repo.list_due_outbox()[0]
+        worker._project_qdrant(event)
+
+        # Ollama should NOT be called — hash unchanged
+        mock_qdrant.upsert_with_vector.assert_not_called()
+        mock_qdrant.upsert.assert_not_called()
+
+    def test_reschedule_outbox_event_dead_letters_after_max_retries(self) -> None:
+        """After MAX_EMBEDDING_RETRIES, event is dead-lettered with processed_at set."""
+        from mcp_memory.repository import MAX_EMBEDDING_RETRIES
+
+        mock_qdrant = MagicMock()
+        mock_qdrant.enabled = True
+
+        record = self.repo.create_memory(
+            content="Journal entry", type="decision", namespace="project",
+            scope_id="mnemonic", source="human",
+        )
+
+        event = self.repo.list_due_outbox()[0]
+
+        # Retry MAX_EMBEDDING_RETRIES times via direct reschedule call
+        for _ in range(MAX_EMBEDDING_RETRIES):
+            self.repo.reschedule_outbox_event(event.id, delay_seconds=0, error="Ollama down")
+
+        # After max retries, event should be dead-lettered
+        # Verify via direct DB query — processed_at now set (suppressed from re-pickup)
+        db = Database(self.tmp_path / "memory.db")
+        with db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM memory_outbox WHERE id = ?", (event.id,)
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["attempt_count"], MAX_EMBEDDING_RETRIES)
+        self.assertIn("DEAD_LETTER", row["error"] or "")
+        self.assertIsNotNone(row["processed_at"], "Dead-lettered event must have processed_at set")
+
+        # Verify suppression — event NOT in due outbox (worker cannot re-poll)
+        due = self.repo.list_due_outbox()
+        self.assertFalse(any(e.id == event.id for e in due), "Dead-lettered event must not be re-polled")
+
+        state = self.repo.get_projection_state(record.id)
+        self.assertEqual(state["qdrant_status"], "error")
+        self.assertIn("DEAD_LETTER", state["last_error"] or "")
+
 
 class OutboxEmbeddingSkipTests(unittest.TestCase):
     """When a newer pending outbox event exists, skip the embedding call."""
@@ -142,10 +234,14 @@ class OutboxEmbeddingSkipTests(unittest.TestCase):
         store._embedder = HashEmbeddingProvider(size=8).embed
         return store
 
-    def test_upsert_called_when_no_newer_event(self) -> None:
-        """Normal path: active record + no newer pending event → upsert (embed) is called."""
+    def test_upsert_with_vector_called_when_no_newer_event(self) -> None:
+        """Normal path: active record + no newer pending event → upsert_with_vector is called."""
         mock_qdrant = self._make_mock_qdrant()
-        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant)
+        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant, max_workers=1)
+        # Ensure embedder is available (used by _project_qdrant)
+        from mcp_memory.embedding import HashEmbeddingProvider
+        worker._embedder = HashEmbeddingProvider(size=768).embed
+        worker._embedding_fingerprint = lambda: "hash:768"
 
         record = self.repo.create_memory(
             content="important context", type="fact",
@@ -154,12 +250,16 @@ class OutboxEmbeddingSkipTests(unittest.TestCase):
 
         worker.process_pending()
 
-        mock_qdrant.upsert.assert_called_once()
+        mock_qdrant.upsert_with_vector.assert_called_once()
+        mock_qdrant.upsert.assert_not_called()
 
     def test_upsert_skipped_when_newer_event_pending(self) -> None:
         """Active record + newer pending event → upsert (Ollama) must be skipped."""
         mock_qdrant = self._make_mock_qdrant()
-        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant)
+        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant, max_workers=1)
+        from mcp_memory.embedding import HashEmbeddingProvider
+        worker._embedder = HashEmbeddingProvider(size=768).embed
+        worker._embedding_fingerprint = lambda: "hash:768"
 
         record = self.repo.create_memory(
             content="will be deleted soon", type="fact",
@@ -173,12 +273,16 @@ class OutboxEmbeddingSkipTests(unittest.TestCase):
         first_event = next(e for e in events if e.target_version == 1)
         worker.apply_projection_event(first_event, worker._handler_for(first_event))
 
+        mock_qdrant.upsert_with_vector.assert_not_called()
         mock_qdrant.upsert.assert_not_called()
 
     def test_delete_still_called_when_record_inactive(self) -> None:
         """Inactive (retracted) record → delete must be called even if newer event exists."""
         mock_qdrant = self._make_mock_qdrant()
-        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant)
+        worker = OutboxWorker(self.repo, qdrant_store=mock_qdrant, max_workers=1)
+        from mcp_memory.embedding import HashEmbeddingProvider
+        worker._embedder = HashEmbeddingProvider(size=768).embed
+        worker._embedding_fingerprint = lambda: "hash:768"
 
         record = self.repo.create_memory(
             content="ephemeral", type="fact",

@@ -4,7 +4,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from mcp_memory.database import Database
 from mcp_memory.errors import InvalidRequestError, NotFoundError, VersionConflictError
@@ -25,6 +25,9 @@ def _loads(value: str) -> Any:
 
 def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+MAX_EMBEDDING_RETRIES = 5
 
 
 class MemoryRepository:
@@ -106,6 +109,17 @@ class MemoryRepository:
                 (memory_id,),
             ).fetchone()
         return self._row_to_record(row) if row else None
+
+    def get_memory_bulk(self, memory_ids: List[str]) -> List[Optional[MemoryRecord]]:
+        """Fetch multiple memories by ID. Missing IDs produce None in result list."""
+        if not memory_ids:
+            return []
+        placeholders = ",".join("?" * len(memory_ids))
+        query = f"SELECT * FROM memory_records WHERE id IN ({placeholders}) AND status IN ('active', 'archived')"
+        with self.database.connect() as connection:
+            rows = connection.execute(query, memory_ids).fetchall()
+        id_to_row = {row["id"]: row for row in rows}
+        return [id_to_row.get(mid) and self._row_to_record(id_to_row[mid]) for mid in memory_ids]
 
     def list_revisions(self, memory_id: str) -> List[MemoryRevision]:
         with self.database.connect() as connection:
@@ -383,7 +397,28 @@ class MemoryRepository:
             "qdrant_version": int(row["qdrant_version"]),
             "obsidian_version": int(row["obsidian_version"]),
             "last_error": row["last_error"],
+            "qdrant_content_hash": row["qdrant_content_hash"],
+            "qdrant_embedding_fingerprint": row["qdrant_embedding_fingerprint"],
         }
+
+    def update_projection_state(self, memory_id: str, **kwargs) -> None:
+        """Update projection state columns. kwargs keys must match column names."""
+        allowed = {
+            "qdrant_version", "qdrant_status", "qdrant_content_hash",
+            "qdrant_embedding_fingerprint", "last_error",
+            "obsidian_version", "obsidian_status",
+        }
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [memory_id]
+        with self.database.connect() as conn:
+            conn.execute(
+                f"UPDATE memory_projections SET {set_clause} WHERE memory_id = ?",
+                values,
+            )
+            conn.commit()
 
     def enqueue_projection_event(self, memory_id: str, event_type: str, *, target_version: int) -> OutboxEvent:
         event = OutboxEvent(
@@ -424,26 +459,49 @@ class MemoryRepository:
             connection.commit()
 
     def reschedule_outbox_event(self, event_id: str, *, delay_seconds: int, error: str) -> None:
-        available_at = datetime.now(timezone.utc).timestamp() + delay_seconds
-        available_at_iso = datetime.fromtimestamp(available_at, tz=timezone.utc).isoformat()
-        with self.database.connect() as connection:
-            connection.execute(
-                "UPDATE memory_outbox SET attempt_count = attempt_count + 1, available_at = ?, error = ? WHERE id = ?",
-                (available_at_iso, error, event_id),
-            )
-            connection.commit()
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT attempt_count, memory_id FROM memory_outbox WHERE id = ?", (event_id,)
+            ).fetchone()
+            if not row:
+                return
+            new_attempts = row["attempt_count"] + 1
+            memory_id = row["memory_id"]
+
+            if new_attempts >= MAX_EMBEDDING_RETRIES:
+                # Dead-letter: mark error and stop retrying
+                # Set processed_at so worker doesn't re-poll this event indefinitely
+                conn.execute(
+                    "UPDATE memory_outbox SET processed_at = ?, error = ?, attempt_count = ? WHERE id = ?",
+                    (_now(), f"DEAD_LETTER: {error}", new_attempts, event_id),
+                )
+                conn.execute(
+                    "UPDATE memory_projections SET qdrant_status = 'error', last_error = ? WHERE memory_id = ?",
+                    (f"DEAD_LETTER: {error}", memory_id),
+                )
+            else:
+                available_at = datetime.now(timezone.utc).timestamp() + delay_seconds
+                available_at_iso = datetime.fromtimestamp(available_at, tz=timezone.utc).isoformat()
+                conn.execute(
+                    "UPDATE memory_outbox SET available_at = ?, error = ?, attempt_count = ? WHERE id = ?",
+                    (available_at_iso, error, new_attempts, event_id),
+                )
+            conn.commit()
 
     def set_projection_version(self, memory_id: str, projection: str, version: int) -> None:
+        current = self.get_projection_version(memory_id, projection)
+        if current is not None and current >= version:
+            return  # Already at or ahead — don't regress
         column = f"{projection}_version"
         status_column = f"{projection}_status"
         sync_column = f"last_{projection}_sync_at"
-        with self.database.connect() as connection:
-            self._ensure_projection_row(connection, memory_id)
-            connection.execute(
+        with self.database.connect() as conn:
+            self._ensure_projection_row(conn, memory_id)
+            conn.execute(
                 f"UPDATE memory_projections SET {column} = ?, {status_column} = 'ready', {sync_column} = ? WHERE memory_id = ?",
                 (version, _now(), memory_id),
             )
-            connection.commit()
+            conn.commit()
 
     def set_projection_error(self, memory_id: str, projection: str, error: str) -> None:
         status_column = f"{projection}_status"
@@ -711,20 +769,74 @@ class MemoryRepository:
             (record.id, record.content, tags_str),
         )
 
-    def search_fts(self, query: str, namespace: str, limit: int) -> List[str]:
-        # Search both content AND tags with FTS5. The MATCH ? applies to both columns
-        # via the table's full-text index, so "architecture" can match if it appears
-        # in either content or tags.
+    def search_fts(
+        self,
+        query: str,
+        namespace: str,
+        limit: int,
+        scope_id: Optional[str] = None,
+        types: Optional[List[str]] = None,
+        status: Optional[str] = None,
+        include_archived: bool = False,
+    ) -> List[Tuple[str, float]]:  # Return (memory_id, bm25_rank)
+        """Search FTS5 and return memory IDs with BM25 ranks.
+
+        Args:
+            query: FTS query string (can contain OR, AND operators)
+            namespace: Required namespace filter
+            limit: Max results
+            scope_id: Optional scope filter
+            types: Optional list of type strings to filter
+            status: Filter by status (default "active")
+            include_archived: If True, include both active and archived
+
+        Returns:
+            List of (memory_id, bm25_rank) tuples, ordered by rank
+        """
+        import sqlite3
+
+        # Build parameterized status filter
+        if include_archived:
+            status_values = ["active", "archived"]
+        else:
+            status_values = [status or "active"]
+
+        placeholders = ",".join("?" * len(status_values))
+
+        sql = f"""
+            SELECT memory_id, bm25(memory_fts) as rank
+            FROM memory_fts
+            WHERE memory_id IN (
+                SELECT id FROM memory_records
+                WHERE namespace = ?
+                  AND status IN ({placeholders})
+            )
+            AND memory_fts MATCH ?
+        """
+        params: List[Any] = [namespace] + status_values + [query]
+
+        if scope_id:
+            sql += " AND memory_id IN (SELECT id FROM memory_records WHERE scope_id = ?)"
+            params.append(scope_id)
+        if types:
+            type_placeholders = ",".join("?" * len(types))
+            sql += f" AND memory_id IN (SELECT id FROM memory_records WHERE type IN ({type_placeholders}))"
+            params.extend(types)
+
+        sql += " ORDER BY rank LIMIT ?"
+        params.append(limit)
+
         with self.database.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT memory_id, bm25(memory_fts) as rank
-                FROM memory_fts
-                WHERE memory_id IN (SELECT id FROM memory_records WHERE namespace = ?)
-                  AND memory_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-                """,
-                (namespace, query, limit),
-            ).fetchall()
-        return [row["memory_id"] for row in rows]
+            try:
+                rows = connection.execute(sql, params).fetchall()
+            except sqlite3.OperationalError as exc:
+                message = str(exc).lower()
+                if (
+                    "fts5:" in message
+                    or "malformed match" in message
+                    or "unterminated string" in message
+                    or "no such column" in message
+                ):
+                    return []  # FTS syntax error from special chars — return empty safely
+                raise
+        return [(row["memory_id"], row["rank"]) for row in rows]

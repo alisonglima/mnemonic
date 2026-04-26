@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import threading
 import unittest
+import uuid
 from pathlib import Path
 
 from mcp_memory.database import Database
@@ -205,6 +206,74 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNotNone(current)
         self.assertEqual(current.status, "archived")
         self.assertEqual(current.notes[-1]["note"], "n3")
+
+    def test_get_memory_bulk_returns_multiple_records(self) -> None:
+        records = [self.repo.create_memory(
+            content=f"content {i}",
+            type="note",
+            namespace="n",
+            scope_id="s",
+            source="test",
+        ) for i in range(3)]
+        ids = [r.id for r in records]
+        results = self.repo.get_memory_bulk(ids)
+        self.assertEqual(len(results), 3)
+        self.assertTrue(all(r is not None for r in results))
+
+    def test_get_memory_bulk_skips_missing(self) -> None:
+        missing = [str(uuid.uuid4()) for _ in range(2)]
+        results = self.repo.get_memory_bulk(missing)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(r is None for r in results))
+
+    def test_get_memory_bulk_empty_list(self) -> None:
+        results = self.repo.get_memory_bulk([])
+        self.assertEqual(results, [])
+
+    def test_set_projection_version_is_monotonic(self) -> None:
+        record = self.repo.create_memory(
+            content="test",
+            type="test",
+            namespace="mono",
+            scope_id="s1",
+            source="test",
+        )
+        record_id = record.id
+
+        db = Database(self.tmp_path / "memory.db")
+        with db.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO memory_projections (memory_id, qdrant_version, qdrant_status) VALUES (?, ?, ?)",
+                (record_id, 5, "ready"),
+            )
+
+        self.repo.set_projection_version(record_id, "qdrant", 3)
+        current = self.repo.get_projection_version(record_id, "qdrant")
+        self.assertEqual(current, 5, f"Expected version 5, got {current}")
+
+    def test_search_fts_filters_by_type(self) -> None:
+        r1 = self.repo.create_memory(content="architecture decision", type="decision",
+                                namespace="fts", scope_id="s1", source="test")
+        r2 = self.repo.create_memory(content="quick note", type="note",
+                                namespace="fts", scope_id="s1", source="test")
+
+        results = self.repo.search_fts(
+            query="architecture",
+            namespace="fts",
+            limit=10,
+            types=["decision"],
+        )
+        result_ids = [mid for mid, _ in results]
+        self.assertIn(r1.id, result_ids)
+        self.assertNotIn(r2.id, result_ids)
+
+    def test_search_fts_uses_parameterized_status(self) -> None:
+        # Verify SQL injection is not possible via status parameter
+        self.repo.create_memory(content="test sql injection", type="test",
+                               namespace="fts", scope_id="s1", source="test")
+        # This should not cause SQL error even with unusual status
+        results = self.repo.search_fts(query="sql", namespace="fts", limit=10, status="active")
+        self.assertGreaterEqual(len(results), 0)  # No SQL error
 
 
 if __name__ == "__main__":

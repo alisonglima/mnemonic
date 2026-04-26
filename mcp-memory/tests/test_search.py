@@ -96,7 +96,7 @@ class TestStalenessFallback(unittest.TestCase):
             with patch.object(self.repo, 'pending_outbox_count', return_value=5):
                 result = service.search(query="test", namespace="fresh", limit=5)
 
-        self.assertEqual(result.search_mode, "hybrid", f"Expected hybrid, got {result.search_mode}")
+        self.assertEqual(result.search_mode, "hybrid_rrf", f"Expected hybrid_rrf, got {result.search_mode}")
         self.assertFalse(result.degraded)
         self.assertEqual(result.freshness_seconds, 2)
 
@@ -145,3 +145,42 @@ class TestStalenessFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_query_expansion_includes_plural():
+    from mcp_memory.search import expand_query
+    result = expand_query("dogs")
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "dog" in terms  # plural → singular
+    assert "dogs" in terms  # original
+
+def test_query_expansion_includes_synonyms():
+    from mcp_memory.search import expand_query
+    result = expand_query("embed")
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "embedding" in terms, f"Expected 'embedding' in terms, got: {terms}"
+
+def test_expand_query_returns_string_for_fts():
+    from mcp_memory.search import expand_query
+    result = expand_query("postgres")
+    assert isinstance(result, str)
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "postgres" in terms
+
+
+def test_rrf_fusion_ranks_both_sources():
+    from mcp_memory.search import rrf_fusion
+    # FTS results: (memory_id, bm25_rank) — lower rank = better match
+    fts_results = [
+        ("a", 1.5),
+        ("b", 2.3),
+        ("c", 3.1),
+    ]
+    # Vector results: just memory_ids in rank order
+    vector_ids = ["b", "d", "e"]
+    fused = rrf_fusion(fts_results, vector_ids, k=60)
+
+    # b should be first (present in both, high rank from both)
+    assert fused[0] == "b"
+    # a and c should follow (only in FTS)
+    assert fused[1] in ["a", "c"]
