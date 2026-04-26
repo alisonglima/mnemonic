@@ -9,9 +9,15 @@ from mcp_memory.repository import MemoryRepository
 
 
 class SearchService:
-    def __init__(self, repository: MemoryRepository, qdrant_store: Optional[QdrantProjectionStore] = None):
+    def __init__(
+        self,
+        repository: MemoryRepository,
+        qdrant_store: Optional[QdrantProjectionStore] = None,
+        score_threshold: float = 0.0,  # production passes settings.search_score_threshold (default 0.5)
+    ):
         self.repository = repository
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
+        self.score_threshold = score_threshold
 
     def search(
         self,
@@ -59,6 +65,7 @@ class SearchService:
                 types=types,
                 include_archived=include_archived,
                 limit=limit,
+                score_threshold=self.score_threshold,
             )
         items = self.repository.search_records(
             query=query,
