@@ -29,43 +29,90 @@
 ### Task 1: Add Schema Migration for Projection Columns
 
 **Files:**
-- Modify: `mcp-memory/src/mcp_memory/migrations.py:60` (add after CREATE TABLE)
-- Modify: `mcp-memory/src/mcp_memory/database.py:19-21` (add migration runner)
+- Modify: `mcp-memory/src/mcp_memory/migrations.py` (add MIGRATIONS list)
+- Modify: `mcp-memory/src/mcp_memory/database.py` (add migration runner)
 - Test: `mcp-memory/tests/test_migrations.py` (create)
 
+**Note:** For existing DBs with `user_version = 0` but tables already created (before migrations existed), migration v1 uses the existing full `SCHEMA` as-is (idempotent CREATE IF NOT EXISTS). Migration v2 adds new columns.
+
 ```python
-# migrations.py — add MIGRATIONS list and migration logic
-# Note: use qdrant_status values: pending|ready|error (NOT embedding_status, NOT failed)
+# migrations.py — after SCHEMA definition, add MIGRATIONS list
+
 MIGRATIONS = [
-    {"version": 1, "sql": "CREATE TABLE IF NOT EXISTS memory_records (...)"},
-    {"version": 2, "sql": """
-        ALTER TABLE memory_projections
-        ADD COLUMN qdrant_content_hash TEXT;
-        ALTER TABLE memory_projections
-        ADD COLUMN qdrant_embedding_fingerprint TEXT;
-        -- NO embedding_status column — reuse qdrant_status for embedding state
-    """},
+    {
+        "version": 1,
+        "sql": SCHEMA,  # REAL schema string — not a placeholder
+    },
+    {
+        "version": 2,
+        "sql": """
+            ALTER TABLE memory_projections
+            ADD COLUMN qdrant_content_hash TEXT;
+
+            ALTER TABLE memory_projections
+            ADD COLUMN qdrant_embedding_fingerprint TEXT;
+        """,
+    },
 ]
+
+CURRENT_SCHEMA_VERSION = MIGRATIONS[-1]["version"]
 ```
 
-**Key fix:** Do NOT add `embedding_status` column. Reuse `qdrant_status` with values `pending|ready|error`. Existing code uses these values — do not introduce `failed` or `projecting` unless implemented.
+```python
+# database.py — add migration runner
 
-- [ ] **Step 1: Create test for migration running**
+from mcp_memory.migrations import MIGRATIONS, CURRENT_SCHEMA_VERSION
+
+class Database:
+    ...
+
+    def initialize(self) -> None:
+        with self.connect() as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            for migration in MIGRATIONS:
+                migration_version = int(migration["version"])
+                if migration_version > version:
+                    conn.executescript(migration["sql"])
+                    conn.execute(f"PRAGMA user_version = {migration_version}")
+                    version = migration_version
+            conn.commit()
+```
+
+**Key fix:** Use real `SCHEMA` constant as migration v1 (idempotent). Add regression test for existing DB bootstrap.
+
+- [ ] **Step 1: Create test for migration running and existing DB bootstrap**
 
 ```python
 # tests/test_migrations.py
+from mcp_memory.migrations import SCHEMA
+
 def test_migration_adds_projection_columns(temp_db):
     db = Database(temp_db / "test.db")
     db.initialize()
     with db.connect() as conn:
-        # Verify new columns exist
         rows = conn.execute("PRAGMA table_info(memory_projections)").fetchall()
         cols = [r["name"] for r in rows]
         assert "qdrant_content_hash" in cols
         assert "qdrant_embedding_fingerprint" in cols
-        # NO embedding_status column
-        all_cols = [r["name"] for r in rows]
-        assert "embedding_status" not in all_cols
+
+def test_existing_v1_database_with_user_version_zero_migrates_to_v2(tmp_path):
+    """Regression: existing DB created before migrations existed."""
+    db = Database(tmp_path / "memory.db")
+    with db.connect() as conn:
+        conn.executescript(SCHEMA)  # Simulate pre-migration DB
+        conn.execute("PRAGMA user_version = 0")
+        conn.commit()
+
+    db.initialize()
+
+    with db.connect() as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        rows = conn.execute("PRAGMA table_info(memory_projections)").fetchall()
+        columns = {row["name"] for row in rows}
+
+    assert version == 2, f"Expected version 2, got {version}"
+    assert "qdrant_content_hash" in columns
+    assert "qdrant_embedding_fingerprint" in columns
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -270,17 +317,30 @@ git commit -m "fix: make set_projection_version monotonic"
 - Modify: Add `embedding_model` attribute if not present
 - Test: `mcp-memory/tests/test_qdrant_store.py`
 
-**Prerequisite:** Verify `embedding_model` attribute exists on `QdrantProjectionStore`. If not, add it using the embedding provider.
+**Prerequisite:** Add `embedding_model` to QdrantProjectionStore constructor.
 
-- [ ] **Step 1: Verify embedding attributes**
+- [ ] **Step 1: Add embedding_model to constructor**
 
 ```python
-# In qdrant_store.py __init__:
-# Check what attributes exist:
-# - vector_strategy (exists)
-# - vector_size (exists)
-# - _embedding_provider.embedding_model or similar
-# Add embedding_model property that derives from provider if not stored directly
+# qdrant_store.py — add to __init__ parameters and self assignment
+def __init__(
+    self,
+    enabled: bool = False,
+    url: str = "",
+    *,
+    collection_name: str = "memory_records",
+    vector_size: int = 8,
+    client=None,
+    embedder: Optional[Callable[[str], List[float]]] = None,
+    embedding_provider: Optional[EmbeddingProvider] = None,
+    vector_strategy: str = "hash",
+    embedding_model: str = "unknown",  # NEW PARAMETER
+):
+    ...
+    # Derive from provider if available, else use parameter
+    provider_config = getattr(embedding_provider, "config", None)
+    provider_model = getattr(provider_config, "embedding_model", None)
+    self.embedding_model = provider_model or embedding_model
 ```
 
 - [ ] **Step 2: Write failing test**
@@ -490,45 +550,47 @@ git commit -m "feat: move embedding to OutboxWorker for async projection"
 - Modify: `mcp-memory/src/mcp_memory/repository.py` (`reschedule_outbox_event`)
 - Test: `mcp-memory/tests/test_outbox.py`
 
-**Key fix for test:** After each retry, re-query `list_due_outbox()` to get updated event with new `available_at`.
+**Key fix:** Do NOT drive test through `list_due_outbox()` after first retry — `available_at` filtering makes the event unavailable. Use direct `reschedule_outbox_event` calls with `delay_seconds=0`.
 
 - [ ] **Step 1: Write failing test**
 
 ```python
-MAX_EMBEDDING_RETRIES = 5
+from mcp_memory.repository import MAX_EMBEDDING_RETRIES
 
-def test_embedding_failure_after_max_retries_sets_error_status(repo, mock_qdrant, mock_ollama, record):
-    mock_ollama.embed.side_effect = Exception("Ollama down")
-    worker = OutboxWorker(repo, qdrant_store=mock_qdrant, max_workers=1)
-    worker._embedder = mock_ollama.embed
-    worker._embedding_fingerprint = lambda: "ollama:nomic-embed-text:768"
+def test_reschedule_outbox_event_dead_letters_after_max_retries(repo):
+    record = repo.create_memory(
+        content="dead letter test",
+        type="test",
+        namespace="dead-letter",
+        scope_id="s1",
+        source="test",
+    )
 
-    # Get initial event
-    events = repo.list_due_outbox()
-    assert len(events) >= 1
-    event = events[0]
+    event = next(
+        e for e in repo.list_due_outbox()
+        if e.memory_id == record.id and "qdrant" in e.event_type
+    )
 
-    # Retry 5 times
-    for attempt in range(MAX_EMBEDDING_RETRIES):
-        try:
-            worker._process_single(event)
-        except Exception:
-            pass
-        # Re-fetch event to get updated available_at
-        events = repo.list_due_outbox()
-        if events:
-            event = events[0]  # Use same event ID but refreshed from DB
+    # Retry MAX_EMBEDDING_RETRIES times via direct reschedule call
+    for _ in range(MAX_EMBEDDING_RETRIES):
+        repo.reschedule_outbox_event(event.id, delay_seconds=0, error="Ollama down")
 
-    # After max retries, status should be error
-    state = repo.get_projection_state(event.memory_id)
-    assert state.qdrant_status == "error", f"Expected 'error', got '{state.qdrant_status}'"
-    assert state.last_error is not None
+    # After max retries, event should be dead-lettered
+    pending = repo.list_pending_outbox()
+    refreshed = next((e for e in pending if e.id == event.id), None)
+    assert refreshed is not None, "Event should still exist in pending"
+    assert refreshed.attempt_count == MAX_EMBEDDING_RETRIES
+    assert "DEAD_LETTER" in (refreshed.error or "")
+
+    state = repo.get_projection_state(record.id)
+    assert state.qdrant_status == "error"
+    assert "DEAD_LETTER" in (state.last_error or "")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_outbox.py::test_embedding_failure_after_max_retries_sets_error_status -v
+PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_outbox.py::test_reschedule_outbox_event_dead_letters_after_max_retries -v
 # Expected: FAIL — dead-letter not implemented
 ```
 
@@ -566,12 +628,10 @@ def reschedule_outbox_event(self, event_id: str, delay_seconds: int, error: str 
         conn.commit()
 ```
 
-**Key fix:** Use `qdrant_status = 'error'` (not `failed`). Re-query events in test between retries.
-
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_outbox.py::test_embedding_failure_after_max_retries_sets_error_status -v
+PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_outbox.py::test_reschedule_outbox_event_dead_letters_after_max_retries -v
 # Expected: PASS
 ```
 
@@ -799,11 +859,22 @@ def search_fts(
     params.append(limit)
 
     with self.database.connect() as connection:
-        rows = connection.execute(sql, params).fetchall()
+        try:
+            rows = connection.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if (
+                "fts5:" in message
+                or "malformed match" in message
+                or "unterminated string" in message
+                or "no such column" in message
+            ):
+                return []  # FTS syntax error from special chars — return empty safely
+            raise
     return [(row["memory_id"], row["rank"]) for row in rows]
 ```
 
-**Key fix:** All dynamic values use `?` parameters. Status values built in a list before SQL construction.
+**Key fix:** All dynamic values use `?` parameters. FTS parse errors caught and return empty instead of crashing.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -933,7 +1004,7 @@ class SearchService:
         )
 
         vector_hits = self.qdrant_store.query(
-            query=query,  # Use raw query for vector search (Qdrant embeds internally)
+            query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
             namespace=namespace, scope_id=scope_id,
             types=types, include_archived=include_archived, limit=50,
             score_threshold=self.score_threshold,
