@@ -62,6 +62,10 @@ class OutboxWorker:
         if record is None:
             return
         if record.status in {"active", "archived"}:
+            # A newer pending event means the record will change again soon.
+            # Skip the embedding to avoid wasting CPU on a state that will be superseded.
+            if self.repository.has_newer_pending_outbox_event(event.memory_id, event.target_version):
+                return
             self.qdrant_store.upsert(record)
         else:
             self.qdrant_store.delete(record.id)
