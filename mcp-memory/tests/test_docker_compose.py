@@ -14,7 +14,8 @@ class DockerComposeTests(unittest.TestCase):
         self.assertIn('condition: service_healthy', compose)
         self.assertIn("GET /healthz HTTP/1.1", compose)
         self.assertIn("grep -q 'HTTP/1.1 200'", compose)
-        self.assertIn('test: ["CMD", "ollama", "list"]', compose)
+        self.assertIn("nomic-embed-text", compose)
+        self.assertIn("ollama list", compose)
         self.assertNotIn("http://localhost:6333/health", compose)
         self.assertNotIn("curl", compose)
 

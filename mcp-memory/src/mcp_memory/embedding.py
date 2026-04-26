@@ -13,7 +13,7 @@ class EmbeddingConfig(BaseModel):
     ollama_url: str = ""
     embedding_model: str = "nomic-embed-text"
     embedding_strategy: str = "hash"
-    embedding_size: int = 8
+    embedding_size: int = 768
 
 
 class EmbeddingProvider(ABC):
@@ -37,11 +37,10 @@ class HashEmbeddingProvider(EmbeddingProvider):
         self.size = size
 
     def embed(self, text: str) -> List[float]:
-        digest = hashlib.sha256(text.lower().encode("utf-8")).digest()
-        values = []
-        for index in range(self.size):
-            values.append((digest[index] / 255.0) * 2 - 1)
-        return values
+        import random
+        seed = int.from_bytes(hashlib.sha256(text.lower().encode("utf-8")).digest(), "big")
+        rng = random.Random(seed)
+        return [rng.uniform(-1.0, 1.0) for _ in range(self.size)]
 
     def is_available(self) -> bool:
         return True
@@ -71,17 +70,21 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
     def _embed_from_ollama(self, text: str) -> List[float]:
         import json
+        import urllib.request
 
         if not self.config.ollama_url:
             raise RuntimeError("Ollama URL not configured")
 
-        url = f"{self.config.ollama_url.rstrip('/')}/api/embeddings"
-        payload = json.dumps({"model": self.config.embedding_model, "prompt": text}).encode("utf-8")
-        req = __import__("urllib.request").Request(url, data=payload, headers={"Content-Type": "application/json"})
+        # /api/embed is the stable endpoint since Ollama 0.6.x
+        # (/api/embeddings was removed in 0.6.x)
+        url = f"{self.config.ollama_url.rstrip('/')}/api/embed"
+        payload = json.dumps({"model": self.config.embedding_model, "input": text}).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
 
-        with urlopen(req, timeout=5) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return data.get("embedding", [])
+            embeddings = data.get("embeddings", [])
+            return embeddings[0] if embeddings else []
 
     def is_available(self) -> bool:
         if not self.config.ollama_url:

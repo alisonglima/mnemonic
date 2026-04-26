@@ -22,7 +22,7 @@ class TestSettings(unittest.TestCase):
 
     def test_default_values(self) -> None:
         settings = Settings.from_env()
-        self.assertEqual(settings.database_path, Path("./memory.db"))
+        self.assertEqual(settings.database_path, Path("./data/memory.db"))
         self.assertEqual(settings.vault_path, Path("./obsidian-vault"))
         self.assertEqual(settings.mcp_port, 8080)
         self.assertEqual(settings.qdrant_url, "")

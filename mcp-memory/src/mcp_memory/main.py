@@ -34,6 +34,7 @@ def build_tools() -> MemoryTools:
         ollama_url=settings.ollama_url,
         embedding_model=settings.embedding_model,
         embedding_strategy=settings.embedding_strategy,
+        embedding_size=settings.embedding_size,
     )
     embedding_provider = create_embedding_provider(embedding_config)
 
