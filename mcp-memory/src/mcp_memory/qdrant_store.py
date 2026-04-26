@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from urllib.error import URLError
 from urllib.request import urlopen
 from typing import Callable, List, Optional
@@ -14,14 +13,6 @@ try:
 except Exception:  # noqa: BLE001
     QdrantClient = None
     Distance = FieldCondition = Filter = MatchAny = MatchValue = PointIdsList = PointStruct = VectorParams = None
-
-
-def simple_embed(text: str, size: int = 8) -> List[float]:
-    digest = hashlib.sha256(text.lower().encode("utf-8")).digest()
-    values = []
-    for index in range(size):
-        values.append((digest[index] / 255.0) * 2 - 1)
-    return values
 
 
 class QdrantProjectionStore:
@@ -109,6 +100,7 @@ class QdrantProjectionStore:
         types: Optional[List[str]],
         include_archived: bool,
         limit: int,
+        score_threshold: float = 0.0,  # 0.0 = no filtering (backward compatible)
     ) -> List[SearchHit]:
         if not self.is_available():
             return []
@@ -134,7 +126,7 @@ class QdrantProjectionStore:
             if types:
                 must_conditions.append({"key": "type", "match": {"any": types}})
             query_filter = {"must": must_conditions}
-        hits = self.client.query_points(
+        kwargs = dict(
             collection_name=self.collection_name,
             query=self._embedder(query),
             limit=limit,
@@ -142,6 +134,9 @@ class QdrantProjectionStore:
             with_payload=True,
             with_vectors=False,
         )
+        if score_threshold > 0.0:
+            kwargs["score_threshold"] = score_threshold
+        hits = self.client.query_points(**kwargs)
         return [SearchHit(id=str(hit.id), score=float(hit.score), payload=dict(hit.payload)) for hit in hits.points]
 
     def upsert(self, _record: MemoryRecord) -> None:

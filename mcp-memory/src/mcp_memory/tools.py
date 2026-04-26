@@ -120,7 +120,6 @@ class MemoryTools:
             idempotency_key=idempotency_key,
             obsidian_projection=obsidian_projection,
         )
-        self.worker.process_pending()
         return {
             "record": record,
             "created": True,
@@ -147,37 +146,35 @@ class MemoryTools:
             metadata=metadata,
             change_reason=change_reason,
         )
-        self.worker.process_pending()
         return {"record": record}
 
     def archive(self, id: str, reason: Optional[str] = None) -> Dict[str, Any]:
         record = self.repository.archive_memory(id, reason=reason)
-        self.worker.process_pending()
         return {"record": record}
 
     def retract(self, id: str, *, expected_version: int, reason: str) -> Dict[str, Any]:
         record = self.repository.retract_memory(id, expected_version=expected_version, reason=reason)
-        self.worker.process_pending()
         return {"record": record}
 
     def delete(self, id: str, *, expected_version: int, reason: str) -> Dict[str, Any]:
         record = self.repository.delete_memory(id, expected_version=expected_version, reason=reason)
-        self.worker.process_pending()
         return {"record": record}
+
+    def delete_by_tag(self, tag: str, namespace: Optional[str] = None) -> Dict[str, Any]:
+        """Delete all records containing a specific tag. Returns count of deleted records."""
+        deleted = self.repository.delete_by_tag(tag, namespace=namespace)
+        return {"deleted_count": deleted}
 
     def add_tags(self, id: str, tags: List[str]) -> Dict[str, Any]:
         record = self.repository.add_tags(id, tags)
-        self.worker.process_pending()
         return {"record": record}
 
     def remove_tags(self, id: str, tags: List[str]) -> Dict[str, Any]:
         record = self.repository.remove_tags(id, tags)
-        self.worker.process_pending()
         return {"record": record}
 
     def append_note(self, id: str, note: str, source: str) -> Dict[str, Any]:
         record = self.repository.append_note(id, note=note, source=source)
-        self.worker.process_pending()
         return {"record": record}
 
     def batch_write(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -269,8 +266,6 @@ class MemoryTools:
                 all_success = False
                 failure_count += 1
                 results.append({"index": idx, "id": memory_id, "success": False, "error": str(exc)})
-
-        self.worker.process_pending()
 
         return {
             "results": results,

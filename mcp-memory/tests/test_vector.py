@@ -59,22 +59,20 @@ class TestOllamaEmbeddingProvider(unittest.TestCase):
     def test_embed_falls_back_to_hash_when_ollama_unavailable(self) -> None:
         config = EmbeddingConfig(ollama_url="http://localhost:11434")
         provider = OllamaEmbeddingProvider(config)
-        # Without a running Ollama, should fall back to hash
         vec = provider.embed("test content")
-        self.assertEqual(len(vec), 8)
+        self.assertEqual(len(vec), config.embedding_size)
 
     def test_embed_uses_hash_when_no_ollama_url(self) -> None:
         config = EmbeddingConfig(ollama_url="")
         provider = OllamaEmbeddingProvider(config)
         vec = provider.embed("test content")
-        self.assertEqual(len(vec), 8)
+        self.assertEqual(len(vec), config.embedding_size)
 
     def test_embed_with_custom_model(self) -> None:
         config = EmbeddingConfig(ollama_url="http://localhost:11434", embedding_model="nomic-embed-text")
         provider = OllamaEmbeddingProvider(config)
-        # Even without Ollama running, should try and fall back
         vec = provider.embed("test content")
-        self.assertEqual(len(vec), 8)
+        self.assertEqual(len(vec), config.embedding_size)
 
 
 if __name__ == "__main__":

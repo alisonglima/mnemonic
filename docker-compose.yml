@@ -7,6 +7,10 @@ services:
       MCP_PORT: "8080"
       QDRANT_URL: http://qdrant:6333
       OLLAMA_URL: http://ollama:11434
+      EMBEDDING_STRATEGY: ollama
+      EMBEDDING_MODEL: nomic-embed-text
+      EMBEDDING_SIZE: "768"
+      SEARCH_SCORE_THRESHOLD: "0.5"
     volumes:
       - ./data:/data
       - ./obsidian-vault:/vault
@@ -36,9 +40,16 @@ services:
 
   ollama:
     image: ollama/ollama:0.6.8
+    volumes:
+      - ollama_data:/root/.ollama
+    # Start server in background, then pull model; subsequent runs skip pull (already cached)
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"]
     healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      test: ["CMD", "sh", "-c", "ollama list 2>&1 | grep -q nomic-embed-text"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  ollama_data:

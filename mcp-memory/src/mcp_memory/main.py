@@ -34,6 +34,7 @@ def build_tools() -> MemoryTools:
         ollama_url=settings.ollama_url,
         embedding_model=settings.embedding_model,
         embedding_strategy=settings.embedding_strategy,
+        embedding_size=settings.embedding_size,
     )
     embedding_provider = create_embedding_provider(embedding_config)
 
@@ -44,7 +45,7 @@ def build_tools() -> MemoryTools:
         embedding_provider=embedding_provider,
         vector_strategy=settings.embedding_strategy,
     )
-    return MemoryTools(settings, repository, SearchService(repository, qdrant_store))
+    return MemoryTools(settings, repository, SearchService(repository, qdrant_store, score_threshold=settings.search_score_threshold))
 
 
 def run_worker(stop_event: threading.Event) -> None:
@@ -166,6 +167,10 @@ def build_mcp_server() -> FastMCP:
     @mcp.tool(name="memory.batch_update_tags")
     def memory_batch_update_tags(updates: list):
         return safe_call(tools.batch_update_tags, updates=updates)
+
+    @mcp.tool(name="memory.delete_by_tag")
+    def memory_delete_by_tag(tag: str, namespace: str = None):
+        return safe_call(tools.delete_by_tag, tag=tag, namespace=namespace)
 
     return mcp
 
