@@ -11,6 +11,7 @@ services:
       EMBEDDING_MODEL: nomic-embed-text
       EMBEDDING_SIZE: "768"
       SEARCH_SCORE_THRESHOLD: "0.5"
+      OUTBOX_MAX_WORKERS: "4"
     volumes:
       - ./data:/data
       - ./obsidian-vault:/vault
