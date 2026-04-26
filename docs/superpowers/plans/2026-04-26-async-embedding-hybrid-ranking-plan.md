@@ -69,16 +69,23 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
+
             for migration in MIGRATIONS:
                 migration_version = int(migration["version"])
-                if migration_version > version:
-                    conn.executescript(migration["sql"])
-                    conn.execute(f"PRAGMA user_version = {migration_version}")
-                    version = migration_version
-            conn.commit()
+                if migration_version <= version:
+                    continue
+
+                # Wrap migration + version update in same transaction
+                conn.executescript(f"""
+BEGIN IMMEDIATE;
+{migration["sql"]}
+PRAGMA user_version = {migration_version};
+COMMIT;
+""")
+                version = migration_version
 ```
 
-**Key fix:** Use real `SCHEMA` constant as migration v1 (idempotent). Add regression test for existing DB bootstrap.
+**Key fix:** Use `executescript` wrapped in explicit `BEGIN IMMEDIATE;...COMMIT;` so migration SQL and `PRAGMA user_version` are atomic. If migration succeeds but PRAGMA fails, rollback occurs.
 
 - [ ] **Step 1: Create test for migration running and existing DB bootstrap**
 
@@ -122,24 +129,7 @@ PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_migrations.py -v
 # Expected: FAIL — columns don't exist yet
 ```
 
-- [ ] **Step 3: Add migration runner to database.py**
-
-```python
-# database.py
-CURRENT_SCHEMA_VERSION = 2
-
-def initialize(self):
-    with self.connect() as conn:
-        # Get current version
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        for mig in MIGRATIONS:
-            if mig["version"] > version:
-                for statement in mig["sql"].split(";"):
-                    if statement.strip():
-                        conn.execute(statement)
-                conn.execute(f"PRAGMA user_version = {mig['version']}")
-        conn.commit()
-```
+- [ ] **Step 3: Implement the migration runner as shown in the overview block above**
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -668,19 +658,23 @@ git commit -m "feat: add dead-letter state after max embedding retries"
 def test_query_expansion_includes_plural():
     from mcp_memory.search import expand_query
     result = expand_query("dogs")
-    assert "dog" in result or "dogs" in result
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "dog" in terms  # plural → singular
+    assert "dogs" in terms  # original
 
 def test_query_expansion_includes_synonyms():
     from mcp_memory.search import expand_query
     result = expand_query("embed")
-    assert any("embedding" in r for r in result)
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "embedding" in terms, f"Expected 'embedding' in terms, got: {terms}"
 
 def test_expand_query_returns_string_for_fts():
     from mcp_memory.search import expand_query
     # expand_query returns string ready for FTS OR query
     result = expand_query("postgres")
     assert isinstance(result, str)
-    assert "postgres" in result
+    terms = [t.strip() for t in result.split(" OR ")]
+    assert "postgres" in terms
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
