@@ -339,6 +339,19 @@ class MemoryRepository:
             ).fetchall()
         return [self._row_to_outbox(row) for row in rows]
 
+    def has_newer_pending_outbox_event(self, memory_id: str, current_target_version: int) -> bool:
+        """Return True if a newer unprocessed outbox event exists for this record.
+
+        Used by the OutboxWorker to skip embeddings for records that will be
+        superseded — avoids wasting Ollama CPU on data that will change again soon.
+        """
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM memory_outbox WHERE memory_id = ? AND target_version > ? AND processed_at IS NULL LIMIT 1",
+                (memory_id, current_target_version),
+            ).fetchone()
+        return row is not None
+
     def pending_outbox_count(self) -> int:
         with self.database.connect() as connection:
             row = connection.execute(
