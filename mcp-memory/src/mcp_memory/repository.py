@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -800,8 +801,6 @@ class MemoryRepository:
         Returns:
             List of (memory_id, bm25_rank) tuples, ordered by rank
         """
-        import sqlite3
-
         # Build parameterized status filter
         if include_archived:
             status_values = ["active", "archived"]

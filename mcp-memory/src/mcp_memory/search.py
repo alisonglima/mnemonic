@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import re
 from typing import Dict, List, Optional, Tuple
 
 from mcp_memory.models import MemoryRecord, SearchResult
@@ -41,7 +42,6 @@ def expand_query(query: str) -> str:
             expansions.extend(syns)
 
     # Path tokenization
-    import re
     if '/' in query or '_' in query:
         tokens = re.split(r'[/_\-\.]+', query)
         expansions.extend([t for t in tokens if len(t) > 1])
