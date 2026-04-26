@@ -159,7 +159,7 @@ class ToolTests(unittest.TestCase):
 
         self.assertEqual(health["qdrant"], "down")
         self.assertTrue(health["degraded"])
-        self.assertEqual(result["search_mode"], "fallback_sqlite")
+        self.assertEqual(result["search_mode"], "fts_sqlite")
         # degraded is False when queue is empty (no staleness), even if qdrant is down
         self.assertFalse(result["degraded"])
 

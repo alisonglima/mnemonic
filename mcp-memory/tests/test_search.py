@@ -69,8 +69,8 @@ class TestStalenessFallback(unittest.TestCase):
                 result = service.search(query="test", namespace="freshness", limit=5)
 
         self.assertEqual(
-            result.search_mode, "fallback_sqlite",
-            f"Expected fallback_sqlite when Qdrant is stale, got {result.search_mode}"
+            result.search_mode, "fts_sqlite",
+            f"Expected fts_sqlite when Qdrant is stale, got {result.search_mode}"
         )
         self.assertTrue(result.degraded)
         self.assertEqual(result.freshness_seconds, 15)
@@ -119,7 +119,7 @@ class TestStalenessFallback(unittest.TestCase):
             with patch.object(self.repo, 'pending_outbox_count', return_value=0):
                 result = service.search(query="test", namespace="unavailable", limit=5)
 
-        self.assertEqual(result.search_mode, "fallback_sqlite")
+        self.assertEqual(result.search_mode, "fts_sqlite")
         # degraded is True because qdrant is enabled but unreachable
         self.assertTrue(result.degraded)
         self.assertEqual(result.freshness_seconds, 0)

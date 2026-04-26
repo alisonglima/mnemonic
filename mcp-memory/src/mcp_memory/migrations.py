@@ -57,4 +57,12 @@ CREATE TABLE IF NOT EXISTS memory_outbox (
   processed_at TEXT,
   error TEXT
 );
+
+-- FTS5 for full-text search over memory content and tags
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+  memory_id,
+  content,
+  tags,
+  tokenize='unicode61'
+);
 """

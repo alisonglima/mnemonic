@@ -95,6 +95,7 @@ class MemoryRepository:
             self._insert_revision(connection, record, source, "create")
             self._ensure_projection_row(connection, record.id)
             self._queue_projection_events(connection, record.id, record.version, record.obsidian_projection)
+            self._sync_fts(connection, record)
             connection.commit()
         return record
 
@@ -606,6 +607,7 @@ class MemoryRepository:
                     expected_version,
                 ),
             )
+        self._sync_fts(connection, record)
         return cursor.rowcount
 
     def _insert_revision(self, connection, record: MemoryRecord, changed_by: str, change_reason: str) -> None:
@@ -701,3 +703,28 @@ class MemoryRepository:
             processed_at=row["processed_at"],
             error=row["error"],
         )
+
+    def _sync_fts(self, connection, record: MemoryRecord) -> None:
+        tags_str = " ".join(record.tags)
+        connection.execute(
+            "INSERT OR REPLACE INTO memory_fts (memory_id, content, tags) VALUES (?, ?, ?)",
+            (record.id, record.content, tags_str),
+        )
+
+    def search_fts(self, query: str, namespace: str, limit: int) -> List[str]:
+        # Search both content AND tags with FTS5. The MATCH ? applies to both columns
+        # via the table's full-text index, so "architecture" can match if it appears
+        # in either content or tags.
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT memory_id, bm25(memory_fts) as rank
+                FROM memory_fts
+                WHERE memory_id IN (SELECT id FROM memory_records WHERE namespace = ?)
+                  AND memory_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (namespace, query, limit),
+            ).fetchall()
+        return [row["memory_id"] for row in rows]

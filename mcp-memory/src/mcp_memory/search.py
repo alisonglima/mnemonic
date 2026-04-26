@@ -73,11 +73,17 @@ class SearchService:
         )
 
         if not qdrant_available or qdrant_stale:
-            # Qdrant unavailable or too stale — SQLite is authoritative and complete
+            # Qdrant unavailable or too stale — use FTS5 for better full-text search
+            fts_ids = self.repository.search_fts(query=query, namespace=namespace, limit=limit * 3)
+            merged: "OrderedDict[str, MemoryRecord]" = OrderedDict()
+            for memory_id in fts_ids:
+                record = self.repository.get_memory(memory_id)
+                if record and record.status in {"active", "archived"}:
+                    merged[record.id] = record
             degraded = qdrant_stale or (not qdrant_available and self.qdrant_store.enabled)
             return SearchResult(
-                items=items,
-                search_mode="fallback_sqlite",
+                items=list(merged.values())[:limit],
+                search_mode="fts_sqlite",
                 degraded=degraded,
                 freshness_seconds=freshness_seconds,
             )
