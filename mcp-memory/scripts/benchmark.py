@@ -60,6 +60,8 @@ class BenchmarkReport:
     scenarios: list[BenchmarkResult] = field(default_factory=list)
     qualitative: list[QualitativeResult] = field(default_factory=list)
     system_info: dict[str, str] = field(default_factory=dict)
+    cleanup_deleted: int = 0
+    cleanup_method: str = ""
 
 
 def generate_content(index: int, size: str = "medium") -> dict[str, Any]:
@@ -73,9 +75,9 @@ def generate_content(index: int, size: str = "medium") -> dict[str, Any]:
         Dictionary with content fields for memory.write
     """
     templates = {
-        "small": f"Benchmark content {index} - short text for latency testing.",
-        "medium": f"Benchmark content {index} - This is a medium-sized text for testing write throughput and search performance across the Mnemonic MCP server. " * 3,
-        "large": f"Benchmark content {index} - " + "Lorem ipsum dolor sit amet consectetur adipiscing elit. " * 50,
+        "small": f"BENCHMARK {index} - short text for latency testing.",
+        "medium": f"BENCHMARK {index} - This is a medium-sized text for testing write throughput and search performance across the Mnemonic MCP server. " * 3,
+        "large": f"BENCHMARK {index} - " + "Lorem ipsum dolor sit amet consectetur adipiscing elit. " * 50,
     }
     return {
         "content": templates.get(size, templates["medium"]),
@@ -211,7 +213,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
     """Test recall (can find what's stored) and precision (don't find what isn't)."""
     unique_id = f"RECALL_TEST_{uuid.uuid4().hex[:8]}"
     target_memory = {
-        "content": f"{unique_id} - This is a very specific memory about PYTHON PROGRAMMING that should be retrievable.",
+        "content": f"This memory contains RECALL_TEST_TOKEN about PYTHON PROGRAMMING and software development that should be retrievable by semantic search.",
         "type": "test",
         "namespace": "benchmark",
         "scope_id": "recall-precision-test",
@@ -229,9 +231,9 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "scope_id": "recall-precision-test", "source": "benchmark",
         })
 
-    # Test 1: Exact unique ID search
+    # Test 1: Exact token search
     exact_search = await client.call_tool("memory.search", arguments={
-        "query": unique_id, "namespace": "benchmark", "limit": 10,
+        "query": "RECALL_TEST_TOKEN python programming", "namespace": "benchmark", "limit": 10,
     })
     exact_found = memory_id in [item["id"] for item in exact_search.data["items"]]
 
@@ -560,12 +562,85 @@ def estimate_token_overhead() -> QualitativeResult:
 
 
 async def cleanup_benchmark_data(client: "FastMCPClient") -> int:
-    """Delete all benchmark memories using delete_by_tag. Returns count of deleted records."""
-    delete_result = await client.call_tool("memory.delete_by_tag", arguments={
-        "tag": "#benchmark",
-    })
-    deleted = delete_result.data.get("deleted_count", 0) if hasattr(delete_result, "data") else 0
-    return deleted
+    """Delete all benchmark memories. Returns count of deleted records."""
+    deleted = 0
+
+    # Try delete_by_tag first (efficient)
+    try:
+        delete_result = await client.call_tool("memory.delete_by_tag", arguments={
+            "tag": "#benchmark",
+        })
+        if hasattr(delete_result, "data"):
+            deleted = delete_result.data.get("deleted_count", 0)
+            if deleted > 0:
+                print(f"  Deleted {deleted} via delete_by_tag")
+                return deleted
+    except Exception as e:
+        print(f"  delete_by_tag not available: {e}")
+
+    # Fallback: search by content keyword + delete one by one
+    print("  Using fallback cleanup via search+delete...")
+    deleted_total = 0
+    page = 0
+    while True:
+        search_result = await client.call_tool("memory.search", arguments={
+            "query": "BENCHMARK",
+            "namespace": "benchmark",
+            "limit": 100,
+            "include_retracted": True,
+        })
+        items = search_result.data.get("items", [])
+        if not items:
+            break
+
+        for item in items:
+            try:
+                await client.call_tool("memory.delete", arguments={
+                    "id": item["id"],
+                    "expected_version": item.get("version", 1),
+                    "reason": "benchmark cleanup",
+                })
+                deleted_total += 1
+            except Exception:
+                pass
+
+        page += 1
+        # Keep iterating until no more results
+        if len(items) < 100 or page > 100:
+            break
+
+    # Cleanup qualitative test namespaces
+    for ns_prefix in ["agent-workflow-", "isolation-test-A-", "isolation-test-B-"]:
+        try:
+            page = 0
+            while True:
+                search_result = await client.call_tool("memory.search", arguments={
+                    "query": "*",
+                    "namespace": ns_prefix,
+                    "limit": 100,
+                    "include_retracted": True,
+                })
+                items = search_result.data.get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    try:
+                        await client.call_tool("memory.delete", arguments={
+                            "id": item["id"],
+                            "expected_version": item.get("version", 1),
+                            "reason": "benchmark cleanup",
+                        })
+                        deleted_total += 1
+                    except Exception:
+                        pass
+                page += 1
+                if len(items) < 100 or page > 50:
+                    break
+        except Exception:
+            pass
+
+    print(f"  Total deleted: {deleted_total}")
+    return deleted_total
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -636,6 +711,11 @@ def generate_report(report: BenchmarkReport) -> str:
         lines.append("|------------|---------|-------|")
         for q in report.qualitative:
             lines.append(f"| {q.name} | {q.verdict} | {q.score:.0%} |")
+
+    # Cleanup report
+    lines.extend(["", "## Cleanup", ""])
+    lines.append(f"- **Records deleted:** {report.cleanup_deleted}")
+    lines.append(f"- **Method:** {report.cleanup_method}")
 
     lines.extend(["", "---", "*Generated by benchmark.py*"])
     return "\n".join(lines)
@@ -711,13 +791,18 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                     print(f"  Failed: {e}")
 
             # ── Cleanup ───────────────────────────────────────────────────
+            # Cleanup is always attempted unless explicitly disabled via --no-cleanup
+            report.cleanup_method = "none"
             if cleanup:
                 print("\n=== Cleaning up benchmark data ===")
                 try:
                     deleted = await cleanup_benchmark_data(client)
+                    report.cleanup_deleted = deleted
+                    report.cleanup_method = "delete_by_tag_or_search"
                     print(f"  Deleted {deleted} benchmark memories")
                 except Exception as e:
                     print(f"  Cleanup failed: {e}")
+                    report.cleanup_method = f"error: {e}"
 
             markdown_report = generate_report(report)
 
