@@ -101,17 +101,19 @@ async def run_sequential_writes(client: "FastMCPClient", count: int, size: str =
     latencies = []
     errors = 0
 
+    wall_start = time.perf_counter()
     for i in range(count):
         try:
             latency = await measure_write_latency(client, generate_content(i, size))
             latencies.append(latency)
-        except Exception:
+        except Exception as e:
             errors += 1
+            print(f"  Write error [{i}]: {e}")
+    duration = time.perf_counter() - wall_start
 
     if not latencies:
         raise RuntimeError("All writes failed")
 
-    duration = sum(latencies) / 1000
     return BenchmarkResult(
         scenario="write_sequential",
         operation="write",
@@ -141,9 +143,10 @@ async def run_concurrent_writes(client: "FastMCPClient", count: int, concurrency
     results = await asyncio.gather(*[write_one(i) for i in range(count)], return_exceptions=True)
     duration = time.perf_counter() - start
 
-    for r in results:
+    for i, r in enumerate(results):
         if isinstance(r, Exception):
             errors += 1
+            print(f"  Concurrent write error [{i}]: {r}")
         else:
             latencies.append(r)
 
@@ -152,7 +155,8 @@ async def run_concurrent_writes(client: "FastMCPClient", count: int, concurrency
         operation="write",
         count=count,
         duration_seconds=duration,
-        ops_per_second=count / duration if duration > 0 else 0,
+        # Use successful count so ops/sec isn't inflated when errors occur
+        ops_per_second=len(latencies) / duration if duration > 0 else 0,
         avg_latency_ms=statistics.mean(latencies) if latencies else 0,
         min_latency_ms=min(latencies) if latencies else 0,
         max_latency_ms=max(latencies) if latencies else 0,
@@ -174,12 +178,15 @@ async def run_search_benchmark(client: "FastMCPClient", queries: list[str], runs
     latencies = []
     errors = 0
 
+    wall_start = time.perf_counter()
     for query in queries:
         for _ in range(runs_per_query):
             try:
                 latencies.append(await measure_search_latency(client, query))
-            except Exception:
+            except Exception as e:
                 errors += 1
+                print(f"  Search error [{query!r}]: {e}")
+    duration = time.perf_counter() - wall_start
 
     if not latencies:
         return BenchmarkResult(
@@ -189,7 +196,6 @@ async def run_search_benchmark(client: "FastMCPClient", queries: list[str], runs
             errors=errors, notes="All searches failed"
         )
 
-    duration = sum(latencies) / 1000
     return BenchmarkResult(
         scenario="search",
         operation="search",
@@ -211,9 +217,9 @@ async def run_search_benchmark(client: "FastMCPClient", queries: list[str], runs
 
 async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResult:
     """Test recall (can find what's stored) and precision (don't find what isn't)."""
-    unique_id = f"RECALL_TEST_{uuid.uuid4().hex[:8]}"
+    unique_token = f"RECALL_{uuid.uuid4().hex[:8].upper()}"
     target_memory = {
-        "content": f"This memory contains RECALL_TEST_TOKEN about PYTHON PROGRAMMING and software development that should be retrievable by semantic search.",
+        "content": f"This memory contains {unique_token} about PYTHON PROGRAMMING and software development that should be retrievable by semantic search.",
         "type": "test",
         "namespace": "benchmark",
         "scope_id": "recall-precision-test",
@@ -223,31 +229,31 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
     write_result = await client.call_tool("memory.write", arguments=target_memory)
     memory_id = write_result.data["record"]["id"]
 
-    # Write distracting memories
-    for i in range(5):
+    # Write distractors — enough to make top-3 rank meaningful
+    for i in range(20):
         await client.call_tool("memory.write", arguments={
-            "content": f"Distractor memory {i} about JavaScript, cooking, sports, etc.",
+            "content": f"Distractor memory {i}: JavaScript frameworks, cooking recipes, football scores, travel destinations, stock market trends.",
             "type": "test", "namespace": "benchmark",
             "scope_id": "recall-precision-test", "source": "benchmark",
         })
 
-    # Test 1: Exact token search
+    # Test 1: Exact token search (verifies the record is retrievable at all)
     exact_search = await client.call_tool("memory.search", arguments={
-        "query": "RECALL_TEST_TOKEN python programming", "namespace": "benchmark", "limit": 10,
+        "query": f"{unique_token} python programming", "namespace": "benchmark", "limit": 10,
     })
     exact_found = memory_id in [item["id"] for item in exact_search.data["items"]]
 
-    # Test 2: Semantic search for "python programming"
+    # Test 2: Semantic search — query phrased differently from content
     semantic_search = await client.call_tool("memory.search", arguments={
-        "query": "python programming", "namespace": "benchmark", "limit": 5,
+        "query": "software engineering best practices", "namespace": "benchmark", "limit": 10,
     })
     positions = {item["id"]: i for i, item in enumerate(semantic_search.data["items"])}
     target_rank = positions.get(memory_id, 999)
     in_top_3 = target_rank < 3
 
-    # Test 3: Precision - unrelated search should NOT find target
+    # Test 3: Precision — unrelated query should NOT surface the target
     noise_search = await client.call_tool("memory.search", arguments={
-        "query": "aerospace engineering spacecraft", "namespace": "benchmark", "limit": 10,
+        "query": "aerospace engineering spacecraft orbital mechanics", "namespace": "benchmark", "limit": 10,
     })
     noise_found_target = memory_id in [item["id"] for item in noise_search.data["items"]]
 
@@ -266,6 +272,8 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
         verdict=verdict,
         score=score,
         details={
+            "unique_token": unique_token,
+            "distractors": 20,
             "exact_match_found": exact_found,
             "semantic_rank": target_rank + 1,
             "semantic_in_top_3": in_top_3,
@@ -288,7 +296,8 @@ async def run_context_integration_test(client: "FastMCPClient") -> QualitativeRe
     phase1_mode = initial_search.data.get("search_mode", "unknown")
 
     # Phase 2: Agent makes a decision - write it
-    decision_content = f"DECISION: Using PostgreSQL for user data. Rationale: ACID compliance, JSON support, mature ecosystem. Made by agent on 2024-01-15."
+    today = datetime.now().date().isoformat()
+    decision_content = f"DECISION: Using PostgreSQL for user data. Rationale: ACID compliance, JSON support, mature ecosystem. Made by agent on {today}."
     write_result = await client.call_tool("memory.write", arguments={
         "content": decision_content,
         "type": "decision",
@@ -333,6 +342,7 @@ async def run_context_integration_test(client: "FastMCPClient") -> QualitativeRe
         verdict=verdict,
         score=score,
         details={
+            "namespace": namespace,
             "phase1_existing_context_found": phase1_results,
             "phase1_search_mode": phase1_mode,
             "phase3_decision_found": decision_found,
@@ -387,6 +397,8 @@ async def run_namespace_isolation_test(client: "FastMCPClient") -> QualitativeRe
         verdict=verdict,
         score=score,
         details={
+            "namespace_A": ns_a,
+            "namespace_B": ns_b,
             "namespace_A_isolated": not b_found_in_a,
             "namespace_B_isolated": not a_found_in_b,
             "cross_namespace_leakage": b_found_in_a or a_found_in_b,
@@ -454,7 +466,12 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
 
 
 async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> QualitativeResult:
-    """Determine if Ollama is the bottleneck by analyzing timing across content sizes."""
+    """Estimate where latency is spent by comparing write times across content sizes.
+
+    Note: this is a heuristic, not a rigorous breakdown. Latency includes embedding,
+    SQLite write, Qdrant upsert, and MCP protocol overhead — they cannot be
+    cleanly separated from the outside. Results give a directional signal only.
+    """
     sizes = {
         "tiny": 50,
         "small": 200,
@@ -465,12 +482,13 @@ async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> Qualitative
     results = {}
 
     for size_name, char_count in sizes.items():
-        content = "Test content for embedding analysis. " * (char_count // 30)
+        content = "Test content for embedding analysis. " * (char_count // 30 + 1)
+        content = content[:char_count]
 
-        # Warm-up
+        # Warmup in isolated namespace (doesn't pollute benchmark corpus)
         await client.call_tool("memory.write", arguments={
-            "content": content[:50], "type": "test", "namespace": "benchmark",
-            "scope_id": "ollama-analysis", "source": "benchmark",
+            "content": content[:50], "type": "test", "namespace": "benchmark-warmup",
+            "scope_id": "ollama-warmup", "source": "benchmark",
         })
 
         latencies = []
@@ -488,7 +506,8 @@ async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> Qualitative
             "stddev_ms": round(statistics.stdev(latencies) if len(latencies) > 1 else 0, 2),
         }
 
-    # Analyze: estimate embedding vs overhead ratio
+    # Heuristic: if latency scales with content size → embedding-dominated.
+    # If flat → overhead-dominated (SQLite/Qdrant/MCP).
     large = results.get("large")
     tiny = results.get("tiny")
     bottleneck_verdict = "UNKNOWN"
@@ -497,34 +516,49 @@ async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> Qualitative
     if large and tiny:
         chars_diff = large["chars"] - tiny["chars"]
         ms_diff = large["avg_ms"] - tiny["avg_ms"]
-        if chars_diff > 0:
+        if chars_diff > 0 and ms_diff > 0:
             ms_per_char = ms_diff / chars_diff
-            est_overhead = large["avg_ms"] - (ms_per_char * large["chars"])
-            est_embedding_pct = min((ms_per_char * large["chars"]) / large["avg_ms"] * 100, 95)
-            bottleneck_verdict = "OLLAMA" if est_embedding_pct > 60 else "PROTOCOL"
+            est_embedding_pct = min(
+                (ms_per_char * large["chars"]) / large["avg_ms"] * 100, 95
+            )
+            bottleneck_verdict = "EMBEDDING_DOMINANT" if est_embedding_pct > 60 else "OVERHEAD_DOMINANT"
+        else:
+            bottleneck_verdict = "FLAT_LATENCY (overhead dominant or model batches tokens)"
 
     score = est_embedding_pct / 100.0 if est_embedding_pct > 0 else 0.5
-    verdict = f"OLLAMA bottleneck ({int(est_embedding_pct)}%)" if est_embedding_pct > 60 else f"Balanced ({int(est_embedding_pct)}% embedding)"
+    verdict = (
+        f"Embedding ~{int(est_embedding_pct)}% of write latency"
+        if est_embedding_pct > 0
+        else "Latency flat across sizes (overhead dominant)"
+    )
 
     return QualitativeResult(
-        name="Ollama Bottleneck Analysis",
+        name="Bottleneck Analysis (heuristic)",
         verdict=verdict,
         score=score,
         details={
             "timing_by_size": results,
-            "est_embedding_pct": f"{int(est_embedding_pct)}%",
+            "est_embedding_pct": f"~{int(est_embedding_pct)}%",
             "bottleneck_verdict": bottleneck_verdict,
+            "caveat": "Cannot isolate embedding vs SQLite/Qdrant/MCP overhead from client side",
         }
     )
 
 
-def estimate_token_overhead() -> QualitativeResult:
-    """Estimate real token cost for an agent session using memory MCP."""
+def estimate_token_overhead_theoretical() -> QualitativeResult:
+    """Theoretical token cost estimate for an agent session using memory MCP.
+
+    NOTE: All values are fixed estimates, not measured. Use as a rough
+    planning guide, not a benchmark result. Run with real agent traces
+    for accurate token accounting.
+    """
+    # Rough estimates per operation type
     operation_costs = {
         "search": {"overhead_tokens": 30, "avg_result_chars": 200},
         "write": {"overhead_tokens": 50, "avg_content_chars": 500},
     }
 
+    # Typical session pattern
     scenario = {
         "session_start_search": 1,
         "mid_session_writes": 5,
@@ -543,25 +577,27 @@ def estimate_token_overhead() -> QualitativeResult:
         breakdown[op] = {"count": count, "tokens_each": tokens // count, "tokens_total": tokens}
         total_tokens += tokens
 
-    context_window_tokens = 8192
+    # Use a large modern context window as reference (200K tokens)
+    context_window_tokens = 200_000
     overhead_percentage = (total_tokens / context_window_tokens) * 100
 
-    verdict = "LOW" if overhead_percentage < 5 else "MEDIUM" if overhead_percentage < 15 else "HIGH"
-    score = 1.0 if overhead_percentage < 5 else 0.7 if overhead_percentage < 15 else 0.3
+    verdict = "NEGLIGIBLE" if overhead_percentage < 1 else "LOW" if overhead_percentage < 5 else "MEDIUM"
+    score = 1.0 if overhead_percentage < 1 else 0.8 if overhead_percentage < 5 else 0.5
 
     return QualitativeResult(
-        name="Token Overhead",
-        verdict=f"{verdict} ({overhead_percentage:.1f}% of 8K window)",
+        name="Token Overhead (theoretical estimate)",
+        verdict=f"{verdict} ({overhead_percentage:.2f}% of 200K window)",
         score=score,
         details={
             "total_tokens_per_session": total_tokens,
-            "context_window_8k_percentage": round(overhead_percentage, 2),
+            "context_window_200k_percentage": round(overhead_percentage, 3),
             "breakdown": breakdown,
+            "note": "Fixed estimates — not measured. Actual overhead depends on content size and result count.",
         }
     )
 
 
-async def cleanup_benchmark_data(client: "FastMCPClient") -> int:
+async def cleanup_benchmark_data(client: "FastMCPClient", extra_namespaces: list[str] | None = None) -> int:
     """Delete all benchmark memories. Returns count of deleted records."""
     deleted = 0
 
@@ -574,49 +610,52 @@ async def cleanup_benchmark_data(client: "FastMCPClient") -> int:
             deleted = delete_result.data.get("deleted_count", 0)
             if deleted > 0:
                 print(f"  Deleted {deleted} via delete_by_tag")
-                return deleted
+                # Still continue to clean up qualitative namespaces (they may not have #benchmark tag)
     except Exception as e:
         print(f"  delete_by_tag not available: {e}")
 
     # Fallback: search by content keyword + delete one by one
-    print("  Using fallback cleanup via search+delete...")
-    deleted_total = 0
-    page = 0
-    while True:
-        search_result = await client.call_tool("memory.search", arguments={
-            "query": "BENCHMARK",
-            "namespace": "benchmark",
-            "limit": 100,
-            "include_retracted": True,
-        })
-        items = search_result.data.get("items", [])
-        if not items:
-            break
+    if deleted == 0:
+        print("  Using fallback cleanup via search+delete...")
+        page = 0
+        while True:
+            search_result = await client.call_tool("memory.search", arguments={
+                "query": "BENCHMARK",
+                "namespace": "benchmark",
+                "limit": 100,
+                "include_retracted": True,
+            })
+            items = search_result.data.get("items", [])
+            if not items:
+                break
 
-        for item in items:
-            try:
-                await client.call_tool("memory.delete", arguments={
-                    "id": item["id"],
-                    "expected_version": item.get("version", 1),
-                    "reason": "benchmark cleanup",
-                })
-                deleted_total += 1
-            except Exception:
-                pass
+            for item in items:
+                try:
+                    await client.call_tool("memory.delete", arguments={
+                        "id": item["id"],
+                        "expected_version": item.get("version", 1),
+                        "reason": "benchmark cleanup",
+                    })
+                    deleted += 1
+                except Exception as e:
+                    print(f"  Delete error [{item['id']}]: {e}")
 
-        page += 1
-        # Keep iterating until no more results
-        if len(items) < 100 or page > 100:
-            break
+            page += 1
+            if len(items) < 100 or page > 100:
+                break
 
-    # Cleanup qualitative test namespaces
-    for ns_prefix in ["agent-workflow-", "isolation-test-A-", "isolation-test-B-"]:
+    # Cleanup qualitative test namespaces by exact name
+    qualitative_namespaces = extra_namespaces or []
+    qualitative_namespaces += ["benchmark-warmup"]
+
+    for ns in qualitative_namespaces:
         try:
             page = 0
+            ns_deleted = 0
             while True:
                 search_result = await client.call_tool("memory.search", arguments={
-                    "query": "*",
-                    "namespace": ns_prefix,
+                    "query": "test",
+                    "namespace": ns,
                     "limit": 100,
                     "include_retracted": True,
                 })
@@ -630,17 +669,20 @@ async def cleanup_benchmark_data(client: "FastMCPClient") -> int:
                             "expected_version": item.get("version", 1),
                             "reason": "benchmark cleanup",
                         })
-                        deleted_total += 1
-                    except Exception:
-                        pass
+                        deleted += 1
+                        ns_deleted += 1
+                    except Exception as e:
+                        print(f"  Delete error in ns={ns} [{item['id']}]: {e}")
                 page += 1
                 if len(items) < 100 or page > 50:
                     break
-        except Exception:
-            pass
+            if ns_deleted:
+                print(f"  Cleaned {ns_deleted} from namespace '{ns}'")
+        except Exception as e:
+            print(f"  Namespace cleanup failed for '{ns}': {e}")
 
-    print(f"  Total deleted: {deleted_total}")
-    return deleted_total
+    print(f"  Total deleted: {deleted}")
+    return deleted
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -745,6 +787,9 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
 
             report = BenchmarkReport(timestamp=datetime.now().isoformat(), server_url=server_url, system_info=system_info)
 
+            # Track qualitative namespaces for cleanup
+            qualitative_namespaces: list[str] = []
+
             # ── Performance Scenarios ────────────────────────────────────
             perf_scenarios = [
                 ("Sequential Writes (100)", run_sequential_writes(client, count=100, size="medium")),
@@ -752,7 +797,11 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                 ("Concurrent Writes (100, c=10)", run_concurrent_writes(client, count=100, concurrency=10, size="medium")),
                 ("Concurrent Writes (500, c=20)", run_concurrent_writes(client, count=500, concurrency=20, size="medium")),
                 ("Search (5 queries x 5 runs)", run_search_benchmark(client, queries=[
-                    "benchmark", "content test", "benchmark benchmark", "test performance", "#benchmark"
+                    "software engineering performance measurement",
+                    "distributed systems fault tolerance",
+                    "machine learning model training pipeline",
+                    "database query optimization index",
+                    "API design REST GraphQL microservices",
                 ], runs_per_query=5)),
             ]
 
@@ -767,38 +816,47 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                     print(f"  Failed: {e}")
 
             # ── Qualitative Scenarios ────────────────────────────────────
-            # Each entry is (name, coro or result)
-            _qual_raw = [
-                ("Recall & Precision", run_recall_precision_test(client)),
-                ("Context Integration", run_context_integration_test(client)),
-                ("Namespace Isolation", run_namespace_isolation_test(client)),
-                ("Reliability Under Load", run_reliability_test(client, concurrent_ops=50)),
-                ("Ollama Bottleneck Analysis", run_ollama_bottleneck_analysis(client)),
-                ("Token Overhead", estimate_token_overhead()),
+            print("\n=== Qualitative Assessment ===")
+
+            qual_fns = [
+                ("Recall & Precision", lambda: run_recall_precision_test(client)),
+                ("Context Integration", lambda: run_context_integration_test(client)),
+                ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
+                ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
+                ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
+                ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
             ]
 
-            print("\n=== Qualitative Assessment ===")
-            for name, coro in _qual_raw:
+            for name, fn in qual_fns:
                 print(f"\nRunning: {name}...")
                 try:
+                    coro = fn()
                     if asyncio.iscoroutine(coro):
                         result = await coro
                     else:
-                        result = coro  # already evaluated (e.g. estimate_token_overhead)
+                        result = coro
                     report.qualitative.append(result)
                     print(f"  Done: {result.verdict} (score: {result.score:.0%})")
+
+                    # Collect namespaces from qualitative tests for cleanup
+                    ns = result.details.get("namespace")
+                    if ns:
+                        qualitative_namespaces.append(ns)
+                    for key in ("namespace_A", "namespace_B"):
+                        ns = result.details.get(key)
+                        if ns:
+                            qualitative_namespaces.append(ns)
                 except Exception as e:
                     print(f"  Failed: {e}")
 
             # ── Cleanup ───────────────────────────────────────────────────
-            # Cleanup is always attempted unless explicitly disabled via --no-cleanup
             report.cleanup_method = "none"
             if cleanup:
                 print("\n=== Cleaning up benchmark data ===")
                 try:
-                    deleted = await cleanup_benchmark_data(client)
+                    deleted = await cleanup_benchmark_data(client, extra_namespaces=qualitative_namespaces)
                     report.cleanup_deleted = deleted
-                    report.cleanup_method = "delete_by_tag_or_search"
+                    report.cleanup_method = "delete_by_tag + exact_namespace"
                     print(f"  Deleted {deleted} benchmark memories")
                 except Exception as e:
                     print(f"  Cleanup failed: {e}")

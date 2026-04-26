@@ -13,7 +13,7 @@ class TestGenerateContent:
 
     def test_generates_medium_content(self):
         c = generate_content(42, "medium")
-        assert "Benchmark content 42" in c["content"]
+        assert "BENCHMARK 42" in c["content"]
 
     def test_generates_large_content(self):
         c = generate_content(99, "large")
@@ -49,6 +49,17 @@ class TestBenchmarkResult:
         )
         assert r.errors == 2
         assert "failed" in r.notes
+
+    def test_ops_per_second_reflects_successes_not_total(self):
+        # With 10 errors out of 100, ops/sec should reflect 90 successes
+        r = BenchmarkResult(
+            scenario="write_concurrent", operation="write", count=100,
+            duration_seconds=10.0, ops_per_second=9.0,  # 90/10, not 100/10
+            avg_latency_ms=100.0, min_latency_ms=80.0, max_latency_ms=200.0,
+            stddev_ms=20.0, errors=10
+        )
+        assert r.ops_per_second == 9.0
+        assert r.errors == 10
 
 
 class TestGenerateReport:
