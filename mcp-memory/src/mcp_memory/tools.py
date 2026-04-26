@@ -13,13 +13,13 @@ from mcp_memory.search import SearchService
 
 
 class MemoryTools:
-    def __init__(self, settings: Settings, repository: MemoryRepository, search_service: SearchService):
+    def __init__(self, settings: Settings, repository: MemoryRepository, search_service: SearchService, outbox_max_workers: int = 4):
         self.settings = settings
         self.repository = repository
         self.search_service = search_service
         self.qdrant_store = getattr(search_service, "qdrant_store", QdrantProjectionStore(enabled=bool(settings.qdrant_url), url=settings.qdrant_url, collection_name=settings.qdrant_collection))
         self.obsidian_store = ObsidianProjectionStore(settings.vault_path)
-        self.worker = OutboxWorker(repository, self.qdrant_store, self.obsidian_store)
+        self.worker = OutboxWorker(repository, self.qdrant_store, self.obsidian_store, max_workers=outbox_max_workers)
         self.health_service = HealthService(settings, repository, self.qdrant_store)
 
     def get(self, memory_id: str) -> Dict[str, Any]:

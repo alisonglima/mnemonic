@@ -28,6 +28,9 @@ class Settings(BaseModel):
     retention_action: Literal["archive", "none"] = "archive"
     retention_days: int = 30
 
+    # Outbox worker configuration
+    outbox_max_workers: int = 4
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
@@ -44,4 +47,5 @@ class Settings(BaseModel):
             default_namespace=os.getenv("DEFAULT_NAMESPACE", ""),
             retention_action=os.getenv("RETENTION_ACTION", "archive"),
             retention_days=int(os.getenv("RETENTION_DAYS", "30")),
+            outbox_max_workers=int(os.getenv("OUTBOX_MAX_WORKERS", "4")),
         )

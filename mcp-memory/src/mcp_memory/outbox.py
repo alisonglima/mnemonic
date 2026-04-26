@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 import time
 from typing import Callable
@@ -16,10 +17,14 @@ class OutboxWorker:
         repository: MemoryRepository,
         qdrant_store: QdrantProjectionStore = None,
         obsidian_store: ObsidianProjectionStore = None,
+        max_workers: int = 4,
     ):
         self.repository = repository
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
         self.obsidian_store = obsidian_store
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="outbox-"
+        )
 
     def record_projection_version(self, memory_id: str, projection: str, version: int) -> None:
         self.repository.set_projection_version(memory_id, projection, version)
@@ -36,14 +41,29 @@ class OutboxWorker:
         return True
 
     def process_pending(self) -> None:
-        for event in self.repository.list_due_outbox():
+        events = self.repository.list_due_outbox()
+        if not events:
+            return
+        futures = []
+        for event in events:
+            futures.append(self._executor.submit(self._process_single, event))
+        for future in concurrent.futures.as_completed(futures):
             try:
-                self.apply_projection_event(event, self._handler_for(event))
-            except Exception as exc:  # noqa: BLE001
-                projection = "qdrant" if "qdrant" in event.event_type else "obsidian"
-                self.repository.set_projection_error(event.memory_id, projection, str(exc))
-                delay_seconds = min(300, max(5, 5 * (event.attempt_count + 1)))
-                self.repository.reschedule_outbox_event(event.id, delay_seconds=delay_seconds, error=str(exc))
+                future.result()
+            except Exception:  # noqa: BLE001
+                pass  # Errors are already recorded inside _process_single
+
+    def _process_single(self, event: OutboxEvent) -> None:
+        try:
+            self.apply_projection_event(event, self._handler_for(event))
+        except Exception as exc:  # noqa: BLE001
+            projection = "qdrant" if "qdrant" in event.event_type else "obsidian"
+            self.repository.set_projection_error(event.memory_id, projection, str(exc))
+            delay_seconds = min(300, max(5, 5 * (event.attempt_count + 1)))
+            self.repository.reschedule_outbox_event(event.id, delay_seconds=delay_seconds, error=str(exc))
+
+    def shutdown(self, wait: bool = True) -> None:
+        self._executor.shutdown(wait=wait)
 
     def run_forever(self, stop_event: threading.Event, poll_interval_seconds: float = 1.0) -> None:
         while not stop_event.is_set():

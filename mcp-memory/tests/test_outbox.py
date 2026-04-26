@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from urllib.error import URLError
@@ -206,6 +208,90 @@ class QdrantStoreTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             store.upsert(None)  # type: ignore[arg-type]
+
+
+class TestParallelProcessing(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.tmpdir.name)
+        self.repo = _repo(self.tmp_path)
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def test_processes_events_concurrently(self) -> None:
+        """Events should be dispatched to the thread pool, not processed sequentially."""
+        # Create multiple records to generate multiple events
+        for i in range(3):
+            self.repo.create_memory(
+                content=f"concurrent test {i}",
+                type="test",
+                namespace="parallel",
+                scope_id=f"s{i}",
+                source="test",
+            )
+        pending = self.repo.list_due_outbox()
+        self.assertGreaterEqual(len(pending), 1)
+
+        handled_by: list = []
+        lock = threading.Lock()
+        original_project_qdrant = OutboxWorker._project_qdrant
+
+        def tracking_project_qdrant(self, event):
+            with lock:
+                handled_by.append(threading.current_thread().name)
+            time.sleep(0.05)  # simulate I/O
+            return original_project_qdrant(self, event)
+
+        worker = OutboxWorker(self.repo, max_workers=3)
+        worker._project_qdrant = lambda e: tracking_project_qdrant(worker, e)  # type: ignore[method-assign]
+        worker.process_pending()
+
+        unique_threads = set(handled_by)
+        self.assertGreater(
+            len(unique_threads), 1,
+            f"Events processed by single thread {unique_threads}. Expected parallel dispatch.",
+        )
+
+    def test_max_workers_respected(self) -> None:
+        """Worker should not spawn more threads than max_workers."""
+        worker = OutboxWorker(self.repo, max_workers=2)
+        self.assertEqual(worker._executor._max_workers, 2)
+
+    def test_shutdown_works(self) -> None:
+        """shutdown() should cleanly stop the executor."""
+        worker = OutboxWorker(self.repo, max_workers=2)
+        worker.shutdown(wait=True)
+        self.assertTrue(worker._executor._shutdown)
+
+    def test_apply_projection_event_error_reschedules(self) -> None:
+        """On projection error, event should be rescheduled with backoff."""
+        record = self.repo.create_memory(
+            content="error test",
+            type="test",
+            namespace="parallel",
+            scope_id="s2",
+            source="test",
+        )
+        events = self.repo.list_due_outbox()
+        self.assertGreaterEqual(len(events), 1)
+        evt = events[0]
+
+        error_worker = OutboxWorker(self.repo, max_workers=1)
+        error_worker._project_qdrant = lambda e: (_ for _ in ()).throw(RuntimeError("simulated"))  # type: ignore[method-assign]
+
+        # Should not raise — errors are caught internally
+        error_worker.process_pending()
+
+        # Event should have been rescheduled (not marked processed)
+        db2 = Database(self.tmp_path / "memory.db")
+        with db2.connect() as conn:
+            row = conn.execute(
+                "SELECT error, attempt_count FROM memory_outbox WHERE id = ?", (evt.id,)
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["attempt_count"], 1)
+        self.assertIsNotNone(row["error"])
 
 
 if __name__ == "__main__":
