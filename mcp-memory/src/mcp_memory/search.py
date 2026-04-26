@@ -73,7 +73,7 @@ def rrf_fusion(
     Returns:
         List of memory_ids sorted by fused RRF score (descending)
     """
-    from typing import Dict
+
     scores: Dict[str, float] = {}
 
     # FTS: rank by position (lower bm25 = better, but position matters more)
@@ -150,7 +150,7 @@ class SearchService:
                 include_archived=include_archived,
             )
             memory_ids = [id for id, _ in fts_results]
-            records = self.repository.get_memory_bulk(memory_ids) if memory_ids else []
+            records = [r for r in self.repository.get_memory_bulk(memory_ids) if r is not None]
             return SearchResult(
                 items=records[:limit],
                 search_mode="fts_sqlite",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from mcp_memory.migrations import MIGRATIONS, CURRENT_SCHEMA_VERSION
+from mcp_memory.migrations import MIGRATIONS
 
 
 class Database:

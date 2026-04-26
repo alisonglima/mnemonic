@@ -461,12 +461,13 @@ class MemoryRepository:
     def reschedule_outbox_event(self, event_id: str, *, delay_seconds: int, error: str) -> None:
         with self.database.connect() as conn:
             row = conn.execute(
-                "SELECT attempt_count, memory_id FROM memory_outbox WHERE id = ?", (event_id,)
+                "SELECT attempt_count, memory_id, event_type FROM memory_outbox WHERE id = ?", (event_id,)
             ).fetchone()
             if not row:
                 return
             new_attempts = row["attempt_count"] + 1
             memory_id = row["memory_id"]
+            event_type = row["event_type"]
 
             if new_attempts >= MAX_EMBEDDING_RETRIES:
                 # Dead-letter: mark error and stop retrying
@@ -475,10 +476,16 @@ class MemoryRepository:
                     "UPDATE memory_outbox SET processed_at = ?, error = ?, attempt_count = ? WHERE id = ?",
                     (_now(), f"DEAD_LETTER: {error}", new_attempts, event_id),
                 )
-                conn.execute(
-                    "UPDATE memory_projections SET qdrant_status = 'error', last_error = ? WHERE memory_id = ?",
-                    (f"DEAD_LETTER: {error}", memory_id),
-                )
+                if "qdrant" in event_type:
+                    conn.execute(
+                        "UPDATE memory_projections SET qdrant_status = 'error', last_error = ? WHERE memory_id = ?",
+                        (f"DEAD_LETTER: {error}", memory_id),
+                    )
+                elif "obsidian" in event_type:
+                    conn.execute(
+                        "UPDATE memory_projections SET obsidian_status = 'error', last_error = ? WHERE memory_id = ?",
+                        (f"DEAD_LETTER: {error}", memory_id),
+                    )
             else:
                 available_at = datetime.now(timezone.utc).timestamp() + delay_seconds
                 available_at_iso = datetime.fromtimestamp(available_at, tz=timezone.utc).isoformat()

@@ -25,7 +25,10 @@ class OutboxWorker:
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="outbox-"
         )
-        self._embedder = getattr(qdrant_store, "_embedder", lambda x: [0.0] * 8) if qdrant_store else lambda x: [0.0] * 8
+        if qdrant_store and hasattr(qdrant_store, "_embedding_provider"):
+            self._embedder = qdrant_store._embedding_provider.embed
+        else:
+            self._embedder = None
 
     def record_projection_version(self, memory_id: str, projection: str, version: int) -> None:
         self.repository.set_projection_version(memory_id, projection, version)
@@ -79,6 +82,8 @@ class OutboxWorker:
     def _project_qdrant(self, event: OutboxEvent) -> None:
         if not self.qdrant_store.enabled:
             raise RuntimeError("qdrant unavailable")
+        if self._embedder is None:
+            raise RuntimeError("no embedder configured — set embedder on qdrant_store or OutboxWorker")
         record = self.repository.get_memory(event.memory_id)
         if record is None:
             return
@@ -125,7 +130,7 @@ class OutboxWorker:
             name = getattr(prov, "name", "unknown")
             size = getattr(prov, "size", 0)
             return f"{name}:{size}"
-        return "hash:8"
+        return "unknown:0"
 
     def _project_obsidian(self, event: OutboxEvent) -> None:
         if self.obsidian_store is None:
