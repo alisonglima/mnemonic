@@ -13,7 +13,7 @@ class SearchService:
         self,
         repository: MemoryRepository,
         qdrant_store: Optional[QdrantProjectionStore] = None,
-        score_threshold: float = 0.0,
+        score_threshold: float = 0.0,  # production passes settings.search_score_threshold (default 0.5)
     ):
         self.repository = repository
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
