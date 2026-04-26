@@ -128,6 +128,8 @@ class ToolTests(unittest.TestCase):
             source="human",
             tags=["journal"],
         )
+        # Projection is async — worker must run before file exists on disk.
+        self.tools.worker.process_pending()
 
         self.assertTrue(result["record"].obsidian_projection)
         self.assertEqual(result["record"].type, "decision")
@@ -159,6 +161,30 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(health["degraded"])
         self.assertEqual(result["search_mode"], "fallback_sqlite")
         self.assertTrue(result["degraded"])
+
+
+def test_write_does_not_block_on_qdrant_projection(tmp_path):
+    """write() must return after SQLite commit without waiting for Qdrant."""
+    settings = Settings(database_path=tmp_path / "memory.db", vault_path=tmp_path / "vault")
+    db = Database(settings.database_path)
+    db.initialize()
+    repository = MemoryRepository(db)
+    qdrant_store = QdrantProjectionStore(enabled=False)
+    tools = MemoryTools(settings, repository, SearchService(repository, qdrant_store))
+
+    process_calls = []
+    original = tools.worker.process_pending
+    tools.worker.process_pending = lambda: process_calls.append(1) or original()
+
+    tools.write(
+        content="test content",
+        type="test",
+        namespace="ns",
+        scope_id="s",
+        source="test",
+    )
+
+    assert process_calls == [], "write() must not call process_pending() inline"
 
 
 if __name__ == "__main__":
