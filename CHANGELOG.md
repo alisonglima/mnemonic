@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline.
 - `.github/ISSUE_TEMPLATE/` — Structured issue templates for bugs, features, and documentation.
 - `.github/pull_request_template.md` — PR template with verification checklist.
+- `OUTBOX_MAX_WORKERS` — Configurable thread pool size for async Qdrant/Obsidian projections.
+- `SEARCH_SCORE_THRESHOLD` — Minimum cosine similarity filter for Qdrant hits.
+- FTS5 full-text search with BM25 ranking over content and tags (improves recall when Qdrant is unavailable or stale).
+- `freshness_seconds` field in `SearchResult` — shows how many seconds the oldest pending outbox event has been waiting.
+- `scripts/rebuild_fts.py` — Backfill tool for FTS5 index after bulk operations.
 
 ### Changed
 

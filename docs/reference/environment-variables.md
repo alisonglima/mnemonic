@@ -13,6 +13,8 @@
 | `DEFAULT_NAMESPACE` | `default` | No | Default namespace for new records |
 | `RETENTION_ACTION` | `delete` | No | Retention action: `delete` or `archive` for expired records |
 | `RETENTION_DAYS` | `30` | No | Retention period in days for automatic cleanup |
+| `OUTBOX_MAX_WORKERS` | `4` | No | Thread pool size for async Qdrant/Obsidian projections |
+| `SEARCH_SCORE_THRESHOLD` | `0.5` | No | Minimum cosine similarity to include Qdrant hit (0.0–1.0) |
 
 ## Embedding Strategies
 
