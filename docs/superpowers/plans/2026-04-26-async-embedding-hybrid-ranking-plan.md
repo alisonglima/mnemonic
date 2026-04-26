@@ -31,6 +31,7 @@
 **Files:**
 - Modify: `mcp-memory/src/mcp_memory/migrations.py` (add MIGRATIONS list)
 - Modify: `mcp-memory/src/mcp_memory/database.py` (add migration runner)
+- Modify: `mcp-memory/src/mcp_memory/repository.py` (add new columns to `get_projection_state`)
 - Test: `mcp-memory/tests/test_migrations.py` (create)
 
 **Note:** For existing DBs with `user_version = 0` but tables already created (before migrations existed), migration v1 uses the existing full `SCHEMA` as-is (idempotent CREATE IF NOT EXISTS). Migration v2 adds new columns.
@@ -129,7 +130,26 @@ PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_migrations.py -v
 # Expected: FAIL — columns don't exist yet
 ```
 
-- [ ] **Step 3: Implement the migration runner as shown in the overview block above**
+- [ ] **Step 3: Implement the migration runner + repository update**
+
+**A) Migration runner** (database.py) — as shown in the overview block above.
+
+**B) Add new columns to `get_projection_state`** (repository.py):
+
+```python
+# repository.py — update get_projection_state return dict
+def get_projection_state(self, memory_id: str) -> Dict[str, Any]:
+    ...
+    return {
+        "qdrant_status": row["qdrant_status"],
+        "obsidian_status": row["obsidian_status"],
+        "qdrant_version": int(row["qdrant_version"]),
+        "obsidian_version": int(row["obsidian_version"]),
+        "last_error": row["last_error"],
+        "qdrant_content_hash": row["qdrant_content_hash"],        # NEW
+        "qdrant_embedding_fingerprint": row["qdrant_embedding_fingerprint"],  # NEW
+    }
+```
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -141,7 +161,7 @@ PYTHONPATH=mcp-memory/src pytest mcp-memory/tests/test_migrations.py -v
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mcp-memory/src/mcp_memory/migrations.py mcp-memory/src/mcp_memory/database.py mcp-memory/tests/test_migrations.py
+git add mcp-memory/src/mcp_memory/migrations.py mcp-memory/src/mcp_memory/database.py mcp-memory/src/mcp_memory/repository.py mcp-memory/tests/test_migrations.py
 git commit -m "feat: add migration for qdrant projection columns"
 ```
 
@@ -426,7 +446,8 @@ def test_project_qdrant_embeds_in_worker(mock_qdrant, mock_ollama, repo, record)
     worker._project_qdrant(event)
 
     mock_ollama.embed.assert_called_once()
-    mock_qdrant.upsert.assert_called_once()
+    mock_qdrant.upsert_with_vector.assert_called_once()
+    mock_qdrant.upsert.assert_not_called()  # upsert_with_vector, not upsert
 
 def test_project_qdrant_skips_when_hash_unmodified(mock_qdrant, mock_ollama, repo, record, db):
     # Pre-set content_hash and fingerprint to match current — should skip
@@ -478,8 +499,8 @@ def _project_qdrant(self, event: OutboxEvent) -> None:
     fingerprint = self._embedding_fingerprint()
 
     # Content-hash dirty check — skip vector generation if content unchanged
-    if (proj_state.qdrant_content_hash == record.content_hash and
-        proj_state.qdrant_embedding_fingerprint == fingerprint):
+    if (proj_state["qdrant_content_hash"] == record.content_hash and
+        proj_state["qdrant_embedding_fingerprint"] == fingerprint):
         # Vector already current
         self.repository.mark_outbox_processed(event.id)
         return
@@ -573,8 +594,8 @@ def test_reschedule_outbox_event_dead_letters_after_max_retries(repo):
     assert "DEAD_LETTER" in (refreshed.error or "")
 
     state = repo.get_projection_state(record.id)
-    assert state.qdrant_status == "error"
-    assert "DEAD_LETTER" in (state.last_error or "")
+    assert state["qdrant_status"] == "error"
+    assert "DEAD_LETTER" in (state["last_error"] or "")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
