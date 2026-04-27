@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from pathlib import Path
 
 from mcp_memory.migrations import MIGRATIONS
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -49,10 +52,20 @@ class Database:
                 conn.commit()
                 version = migration_version
 
-    def run_wal_checkpoint(self) -> None:
-        """Run a passive WAL checkpoint to control WAL file growth."""
+    def run_wal_checkpoint(self) -> dict:
+        """Run a passive WAL checkpoint to control WAL file growth.
+
+        Returns dict with keys: busy, log_pages, checkpointed_pages.
+        """
         with self.connect() as conn:
-            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            row = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+            busy, log, checkpointed = row[0], row[1], row[2]
+            if busy > 0:
+                logger.warning(
+                    "WAL checkpoint partially blocked: busy=%d, log=%d, checkpointed=%d",
+                    busy, log, checkpointed,
+                )
+            return {"busy": busy, "log_pages": log, "checkpointed_pages": checkpointed}
 
     @staticmethod
     def _filter_alter_statements(sql: str, existing_columns: set) -> str:

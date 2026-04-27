@@ -218,34 +218,67 @@ async def run_search_benchmark(client: "FastMCPClient", queries: list[str], runs
 async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResult:
     """Test recall (can find what's stored) and precision (don't find what isn't)."""
     unique_token = f"RECALL_{uuid.uuid4().hex[:8].upper()}"
+    scope_id = f"recall-{uuid.uuid4().hex[:6]}"
     target_memory = {
         "content": f"This memory contains {unique_token} about PYTHON PROGRAMMING and software development that should be retrievable by semantic search.",
         "type": "test",
         "namespace": "benchmark",
-        "scope_id": "recall-precision-test",
+        "scope_id": scope_id,
         "source": "benchmark",
         "tags": ["recall-test", "python", "#benchmark"],
     }
     write_result = await client.call_tool("memory.write", arguments=target_memory)
     memory_id = write_result.data["record"]["id"]
+    record_version = write_result.data["record"].get("version", 1)
 
     # Write distractors — enough to make top-3 rank meaningful
     for i in range(20):
         await client.call_tool("memory.write", arguments={
             "content": f"Distractor memory {i}: JavaScript frameworks, cooking recipes, football scores, travel destinations, stock market trends.",
             "type": "test", "namespace": "benchmark",
-            "scope_id": "recall-precision-test", "source": "benchmark",
+            "scope_id": scope_id, "source": "benchmark",
             "tags": ["#benchmark"],
         })
 
-    # Wait until search can use hybrid mode for this namespace
-    for _ in range(60):
-        probe = await client.call_tool("memory.search", arguments={
-            "query": unique_token, "namespace": "benchmark", "limit": 1,
-        })
-        if probe.data.get("search_mode") == "hybrid_rrf":
+    # ── Aguardar indexação + hybrid_rrf disponível ─────────────────────────
+    # Poll até que o target esteja indexado no Qdrant E uma search probe
+    # retorne search_mode == "hybrid_rrf". Isso garante que a cobertura do
+    # namespace "benchmark" está >= 80% (a health check global pode divergir
+    # por incluir outros namespaces que não interessam).
+    # Timeout de 120s cobre backlogs grandes.
+    indexed = False
+    waited_seconds = 0
+    for attempt in range(120):
+        waited_seconds = attempt + 1
+        target_ready = False
+        hybrid_ready = False
+        try:
+            get_result = await client.call_tool("memory.get", arguments={"id": memory_id})
+            proj_state = get_result.data.get("projection_state", {})
+            if proj_state.get("qdrant_status") == "ready" and proj_state.get("qdrant_version", 0) >= record_version:
+                target_ready = True
+        except Exception as e:
+            if attempt % 10 == 0:
+                print(f"  poll memory.get error at t={attempt+1}s: {e}")
+        if target_ready:
+            # Probe search para verificar se hybrid_rrf está ativo no namespace
+            try:
+                probe = await client.call_tool("memory.search", arguments={
+                    "query": unique_token, "namespace": "benchmark", "limit": 1,
+                })
+                if probe.data.get("search_mode") == "hybrid_rrf":
+                    hybrid_ready = True
+            except Exception as e:
+                if attempt % 10 == 0:
+                    print(f"  poll search probe error at t={attempt+1}s: {e}")
+        if target_ready and hybrid_ready:
+            indexed = True
             break
-        await asyncio.sleep(5)
+        await asyncio.sleep(1.0)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Search WITHOUT scope_id to leverage broad namespace-level coverage for hybrid_rrf.
+    # scope_id during writes helps identify records for cleanup.
 
     # Test 1: Exact token search (verifies the record is retrievable at all)
     exact_search = await client.call_tool("memory.search", arguments={
@@ -283,7 +316,10 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
         score=score,
         details={
             "unique_token": unique_token,
+            "scope_id": scope_id,
             "distractors": 20,
+            "vector_indexed_before_search": indexed,
+            "waited_seconds": waited_seconds,
             "exact_match_found": exact_found,
             "semantic_rank": target_rank + 1,
             "semantic_in_top_3": in_top_3,
@@ -890,6 +926,34 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
             # Track qualitative namespaces for cleanup
             qualitative_namespaces: list[str] = []
 
+            def _collect_ns(result, namespaces):
+                ns = result.details.get("namespace")
+                if ns:
+                    namespaces.append(ns)
+                for key in ("namespace_A", "namespace_B"):
+                    ns = result.details.get(key)
+                    if ns:
+                        namespaces.append(ns)
+                for ns in result.details.get("_namespaces", []):
+                    if ns not in namespaces:
+                        namespaces.append(ns)
+
+            # ── Recall test runs FIRST, before any perf writes create backlog ──
+            # This ensures the outbox queue is near-empty when recall writes its
+            # 21 records, keeping the index-wait poll loop fast (<30s).
+            async def _run_recall():
+                result = await run_recall_precision_test(client)
+                report.qualitative.append(result)
+                _collect_ns(result, qualitative_namespaces)
+                return result
+
+            print("\n=== Recall & Precision (antes dos writes) ===")
+            try:
+                rec = await _run_recall()
+                print(f"  Done: {rec.verdict} (score: {rec.score:.0%})")
+            except Exception as e:
+                print(f"  Recall failed: {e}")
+
             # ── Performance Scenarios ────────────────────────────────────
             if not recall_only:
                 perf_scenarios = [
@@ -916,49 +980,32 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                     except Exception as e:
                         print(f"  Failed: {e}")
 
-            # ── Qualitative Scenarios ────────────────────────────────────
+            # ── Qualitative Assessment ────────────────────────────────────
             print("\n=== Qualitative Assessment ===")
 
-            qual_fns = [
-                ("Recall & Precision", lambda: run_recall_precision_test(client)),
-            ]
-
             if not recall_only:
-                qual_fns.extend([
+                qual_fns = [
                     ("Context Integration", lambda: run_context_integration_test(client)),
                     ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
                     ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
                     ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
                     ("Token Overhead (measured)", lambda: run_token_overhead_test(client)),
                     ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
-                ])
+                ]
 
-            for name, fn in qual_fns:
-                print(f"\nRunning: {name}...")
-                try:
-                    coro = fn()
-                    if asyncio.iscoroutine(coro):
-                        result = await coro
-                    else:
-                        result = coro
-                    report.qualitative.append(result)
-                    print(f"  Done: {result.verdict} (score: {result.score:.0%})")
-
-                    # Collect namespaces from qualitative tests for cleanup
-                    ns = result.details.get("namespace")
-                    if ns:
-                        qualitative_namespaces.append(ns)
-                    for key in ("namespace_A", "namespace_B"):
-                        ns = result.details.get(key)
-                        if ns:
-                            qualitative_namespaces.append(ns)
-                    # Collect benchmark namespaces from _namespaces field
-                    extra_ns = result.details.get("_namespaces", [])
-                    for ns in extra_ns:
-                        if ns not in qualitative_namespaces:
-                            qualitative_namespaces.append(ns)
-                except Exception as e:
-                    print(f"  Failed: {e}")
+                for name, fn in qual_fns:
+                    print(f"\nRunning: {name}...")
+                    try:
+                        coro = fn()
+                        if asyncio.iscoroutine(coro):
+                            result = await coro
+                        else:
+                            result = coro
+                        report.qualitative.append(result)
+                        print(f"  Done: {result.verdict} (score: {result.score:.0%})")
+                        _collect_ns(result, qualitative_namespaces)
+                    except Exception as e:
+                        print(f"  Failed: {e}")
 
             # ── Cleanup ───────────────────────────────────────────────────
             report.cleanup_method = "none"
