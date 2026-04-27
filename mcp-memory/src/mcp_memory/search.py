@@ -9,8 +9,7 @@ from mcp_memory.qdrant_store import QdrantProjectionStore
 from mcp_memory.repository import MemoryRepository
 
 
-# Freshness threshold in seconds — if Qdrant projection is older than this, use SQLite fallback
-QRANT_STALENESS_THRESHOLD_SECONDS = 10
+QDRANT_MIN_COVERAGE_RATIO = 0.80  # Use hybrid_rrf if >=80% of vectors are current
 
 
 def expand_query(query: str) -> str:
@@ -99,15 +98,12 @@ class SearchService:
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
         self.score_threshold = score_threshold
 
-    def _qdrant_freshness_seconds(self) -> int:
-        """Return how many seconds the oldest pending outbox event has been waiting.
-
-        Returns 0 if no pending events (Qdrant is fully caught up).
-        """
-        count = self.repository.pending_outbox_count()
-        if count == 0:
-            return 0
-        return self.repository.oldest_pending_age_seconds()
+    def _qdrant_is_fresh_enough(self) -> bool:
+        """Return True if Qdrant has sufficient coverage for hybrid search."""
+        if not self.qdrant_store.is_available():
+            return False
+        coverage = self.repository.qdrant_coverage_ratio()
+        return coverage >= QDRANT_MIN_COVERAGE_RATIO
 
     def search(
         self,
@@ -138,10 +134,9 @@ class SearchService:
             return SearchResult(items=items, search_mode="fallback_sqlite", degraded=False, freshness_seconds=0)
 
         qdrant_available = self.qdrant_store.is_available()
-        freshness_seconds = self._qdrant_freshness_seconds()
-        qdrant_stale = freshness_seconds > QRANT_STALENESS_THRESHOLD_SECONDS
+        coverage_ok = self._qdrant_is_fresh_enough() if qdrant_available else False
 
-        if not qdrant_available or qdrant_stale:
+        if not qdrant_available or not coverage_ok:
             # FTS-only mode — expand query here before calling search_fts
             fts_query = expand_query(query)
             fts_results = self.repository.search_fts(
@@ -154,8 +149,8 @@ class SearchService:
             return SearchResult(
                 items=records[:limit],
                 search_mode="fts_sqlite",
-                degraded=qdrant_stale or (not qdrant_available and self.qdrant_store.enabled),
-                freshness_seconds=freshness_seconds,
+                degraded=not coverage_ok or (not qdrant_available and self.qdrant_store.enabled),
+                freshness_seconds=0,
             )
 
         # Hybrid RRF mode — expand query once, use for both paths
@@ -187,5 +182,5 @@ class SearchService:
             items=items,
             search_mode="hybrid_rrf",
             degraded=False,
-            freshness_seconds=freshness_seconds,
+            freshness_seconds=0,
         )

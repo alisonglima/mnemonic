@@ -160,8 +160,8 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(health["qdrant"], "down")
         self.assertTrue(health["degraded"])
         self.assertEqual(result["search_mode"], "fts_sqlite")
-        # degraded is False when queue is empty (no staleness), even if qdrant is down
-        self.assertFalse(result["degraded"])
+        # degraded is True when Qdrant is unavailable and enabled (coverage is 0)
+        self.assertTrue(result["degraded"])
 
 
 def test_write_does_not_block_on_qdrant_projection(tmp_path):

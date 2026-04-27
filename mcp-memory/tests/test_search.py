@@ -1,4 +1,4 @@
-"""Tests for SearchService — freshness indicator and staleness fallback."""
+"""Tests for SearchService — coverage indicator and fallback."""
 from __future__ import annotations
 
 import tempfile
@@ -10,7 +10,7 @@ from mcp_memory.database import Database
 from mcp_memory.models import SearchResult, MemoryRecord, SearchHit
 from mcp_memory.outbox import OutboxWorker
 from mcp_memory.repository import MemoryRepository
-from mcp_memory.search import SearchService, QRANT_STALENESS_THRESHOLD_SECONDS
+from mcp_memory.search import SearchService, QDRANT_MIN_COVERAGE_RATIO
 
 
 def _repo(tmp_path: Path) -> MemoryRepository:
@@ -19,7 +19,7 @@ def _repo(tmp_path: Path) -> MemoryRepository:
     return MemoryRepository(db)
 
 
-class TestFreshnessIndicator(unittest.TestCase):
+class TestCoverageIndicator(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self.tmpdir.name)
@@ -39,7 +39,7 @@ class TestFreshnessIndicator(unittest.TestCase):
         self.assertEqual(result.freshness_seconds, 0)
 
 
-class TestStalenessFallback(unittest.TestCase):
+class TestCoverageFallback(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self.tmpdir.name)
@@ -48,13 +48,13 @@ class TestStalenessFallback(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
 
-    def test_search_falls_back_to_sqlite_when_qdrant_stale(self) -> None:
-        """When oldest_pending_age > threshold, search should use fallback_sqlite."""
+    def test_search_falls_back_to_sqlite_when_coverage_below_threshold(self) -> None:
+        """When qdrant_coverage_ratio < threshold, search should use fts_sqlite."""
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         record = self.repo.create_memory(
-            content="stale qdrant test content",
-            type="test", namespace="freshness", scope_id="s1", source="test",
+            content="low coverage test content",
+            type="test", namespace="coverage", scope_id="s1", source="test",
         )
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
@@ -63,25 +63,24 @@ class TestStalenessFallback(unittest.TestCase):
 
         service = SearchService(self.repo, mock_qdrant, score_threshold=0.5)
 
-        # Override pending metrics to simulate staleness
-        with patch.object(self.repo, 'oldest_pending_age_seconds', return_value=15):
-            with patch.object(self.repo, 'pending_outbox_count', return_value=100):
-                result = service.search(query="test", namespace="freshness", limit=5)
+        # Simulate low coverage (below 80%)
+        with patch.object(self.repo, 'qdrant_coverage_ratio', return_value=0.5):
+            result = service.search(query="test", namespace="coverage", limit=5)
 
         self.assertEqual(
             result.search_mode, "fts_sqlite",
-            f"Expected fts_sqlite when Qdrant is stale, got {result.search_mode}"
+            f"Expected fts_sqlite when coverage is low, got {result.search_mode}"
         )
         self.assertTrue(result.degraded)
-        self.assertEqual(result.freshness_seconds, 15)
+        self.assertEqual(result.freshness_seconds, 0)
 
-    def test_search_uses_hybrid_when_qdrant_fresh(self) -> None:
-        """When Qdrant is fresh (oldest_pending < threshold), use hybrid mode."""
+    def test_search_uses_hybrid_when_coverage_above_threshold(self) -> None:
+        """When qdrant_coverage_ratio >= threshold, use hybrid mode."""
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         record = self.repo.create_memory(
-            content="fresh qdrant test",
-            type="test", namespace="fresh", scope_id="s1", source="test",
+            content="high coverage test",
+            type="test", namespace="highcov", scope_id="s1", source="test",
         )
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
@@ -92,16 +91,16 @@ class TestStalenessFallback(unittest.TestCase):
 
         service = SearchService(self.repo, mock_qdrant, score_threshold=0.5)
 
-        with patch.object(self.repo, 'oldest_pending_age_seconds', return_value=2):
-            with patch.object(self.repo, 'pending_outbox_count', return_value=5):
-                result = service.search(query="test", namespace="fresh", limit=5)
+        # Simulate high coverage (above 80%)
+        with patch.object(self.repo, 'qdrant_coverage_ratio', return_value=0.9):
+            result = service.search(query="test", namespace="highcov", limit=5)
 
         self.assertEqual(result.search_mode, "hybrid_rrf", f"Expected hybrid_rrf, got {result.search_mode}")
         self.assertFalse(result.degraded)
-        self.assertEqual(result.freshness_seconds, 2)
+        self.assertEqual(result.freshness_seconds, 0)
 
     def test_search_falls_back_when_qdrant_unavailable(self) -> None:
-        """When Qdrant is not available, use fallback_sqlite."""
+        """When Qdrant is not available, use fts_sqlite."""
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         record = self.repo.create_memory(
@@ -115,21 +114,30 @@ class TestStalenessFallback(unittest.TestCase):
 
         service = SearchService(self.repo, mock_qdrant, score_threshold=0.5)
 
-        with patch.object(self.repo, 'oldest_pending_age_seconds', return_value=0):
-            with patch.object(self.repo, 'pending_outbox_count', return_value=0):
-                result = service.search(query="test", namespace="unavailable", limit=5)
+        result = service.search(query="test", namespace="unavailable", limit=5)
 
         self.assertEqual(result.search_mode, "fts_sqlite")
         # degraded is True because qdrant is enabled but unreachable
         self.assertTrue(result.degraded)
         self.assertEqual(result.freshness_seconds, 0)
 
-    def test_freshness_threshold_is_10_seconds(self) -> None:
-        """The staleness threshold should be 10 seconds."""
-        self.assertEqual(QRANT_STALENESS_THRESHOLD_SECONDS, 10)
+    def test_coverage_threshold_is_80_percent(self) -> None:
+        """The coverage threshold should be 80 percent."""
+        self.assertEqual(QDRANT_MIN_COVERAGE_RATIO, 0.80)
 
-    def test_qdrant_freshness_returns_zero_when_no_pending_events(self) -> None:
-        """_qdrant_freshness_seconds should return 0 when queue is empty."""
+    def test_qdrant_is_fresh_enough_returns_false_when_unavailable(self) -> None:
+        """_qdrant_is_fresh_enough should return False when Qdrant is unavailable."""
+        from mcp_memory.qdrant_store import QdrantProjectionStore
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.is_available.return_value = False
+
+        service = SearchService(self.repo, mock_qdrant)
+
+        self.assertFalse(service._qdrant_is_fresh_enough())
+
+    def test_qdrant_is_fresh_enough_returns_true_when_coverage_sufficient(self) -> None:
+        """_qdrant_is_fresh_enough should return True when coverage >= threshold."""
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
@@ -137,10 +145,20 @@ class TestStalenessFallback(unittest.TestCase):
 
         service = SearchService(self.repo, mock_qdrant)
 
-        with patch.object(self.repo, 'pending_outbox_count', return_value=0):
-            freshness = service._qdrant_freshness_seconds()
+        with patch.object(self.repo, 'qdrant_coverage_ratio', return_value=0.85):
+            self.assertTrue(service._qdrant_is_fresh_enough())
 
-        self.assertEqual(freshness, 0)
+    def test_qdrant_is_fresh_enough_returns_false_when_coverage_insufficient(self) -> None:
+        """_qdrant_is_fresh_enough should return False when coverage < threshold."""
+        from mcp_memory.qdrant_store import QdrantProjectionStore
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.is_available.return_value = True
+
+        service = SearchService(self.repo, mock_qdrant)
+
+        with patch.object(self.repo, 'qdrant_coverage_ratio', return_value=0.5):
+            self.assertFalse(service._qdrant_is_fresh_enough())
 
 
 if __name__ == "__main__":
@@ -184,3 +202,10 @@ def test_rrf_fusion_ranks_both_sources():
     assert fused[0] == "b"
     # a and c should follow (only in FTS)
     assert fused[1] in ["a", "c"]
+
+
+def test_qdrant_coverage_ratio_empty_db():
+    """qdrant_coverage_ratio should return 1.0 for empty DB."""
+    repo = _repo(Path(tempfile.mkdtemp()))
+    ratio = repo.qdrant_coverage_ratio()
+    assert ratio == 1.0, f"Expected 1.0 for empty DB, got {ratio}"

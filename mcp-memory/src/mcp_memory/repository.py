@@ -385,6 +385,21 @@ class MemoryRepository:
         oldest = datetime.fromisoformat(row["available_at"])
         return max(0, int((datetime.now(timezone.utc) - oldest).total_seconds()))
 
+    def qdrant_coverage_ratio(self) -> float:
+        """Return fraction of active records with current Qdrant projection (0.0–1.0)."""
+        with self.database.connect() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM memory_records WHERE status = 'active'"
+            ).fetchone()[0]
+            if total == 0:
+                return 1.0
+            ready = conn.execute(
+                """SELECT COUNT(*) FROM memory_projections mp
+                   JOIN memory_records mr ON mr.id = mp.memory_id
+                   WHERE mr.status = 'active' AND mp.qdrant_status = 'ready'"""
+            ).fetchone()[0]
+        return ready / total
+
     def get_projection_state(self, memory_id: str) -> Dict[str, Any]:
         with self.database.connect() as connection:
             self._ensure_projection_row(connection, memory_id)
