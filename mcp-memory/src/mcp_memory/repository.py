@@ -385,16 +385,27 @@ class MemoryRepository:
         oldest = datetime.fromisoformat(row["available_at"])
         return max(0, int((datetime.now(timezone.utc) - oldest).total_seconds()))
 
-    def qdrant_coverage_ratio(self, namespace: Optional[str] = None, scope_id: Optional[str] = None) -> float:
+    def qdrant_coverage_ratio(
+        self,
+        namespace: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        include_archived: bool = False,
+    ) -> float:
         """Return fraction of active records with current Qdrant projection (0.0–1.0).
 
         Args:
             namespace: If provided, scope coverage calculation to this namespace.
             scope_id: If provided, further scope to this scope_id within the namespace.
+            include_archived: If True, include archived records in coverage calculation.
         """
         with self.database.connect() as conn:
             params: list = []
-            where = ["mr.status = 'active'"]
+            statuses = ["active"]
+            if include_archived:
+                statuses.append("archived")
+            status_placeholders = ",".join("?" * len(statuses))
+            where = [f"mr.status IN ({status_placeholders})"]
+            params.extend(statuses)
             if namespace:
                 where.append("mr.namespace = ?")
                 params.append(namespace)

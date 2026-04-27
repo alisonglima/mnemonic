@@ -287,6 +287,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "semantic_in_top_3": in_top_3,
             "false_positive_when_noise": noise_found_target,
             "search_mode": semantic_search.data.get("search_mode", "unknown"),
+            "_namespaces": ["benchmark"],
         }
     )
 
@@ -469,6 +470,7 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
             "errors": len(errors),
             "error_rate_pct": round(error_rate * 100, 2),
             "retrieval_failures_sample": retrieval_failures,
+            "_namespaces": ["benchmark"],
         }
     )
 
