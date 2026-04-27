@@ -224,7 +224,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
         "namespace": "benchmark",
         "scope_id": "recall-precision-test",
         "source": "benchmark",
-        "tags": ["recall-test", "python"],
+        "tags": ["recall-test", "python", "#benchmark"],
     }
     write_result = await client.call_tool("memory.write", arguments=target_memory)
     memory_id = write_result.data["record"]["id"]
@@ -235,13 +235,15 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "content": f"Distractor memory {i}: JavaScript frameworks, cooking recipes, football scores, travel destinations, stock market trends.",
             "type": "test", "namespace": "benchmark",
             "scope_id": "recall-precision-test", "source": "benchmark",
+            "tags": ["#benchmark"],
         })
 
-    # Wait for Qdrant coverage to recover before measuring search
-    for _ in range(60):  # up to 5 minutes
-        health = await client.call_tool("memory.health", arguments={})
-        coverage = health.data.get("qdrant_coverage_ratio", 0)
-        if coverage >= 0.80:
+    # Wait until search can use hybrid mode for this namespace
+    for _ in range(60):
+        probe = await client.call_tool("memory.search", arguments={
+            "query": unique_token, "namespace": "benchmark", "limit": 1,
+        })
+        if probe.data.get("search_mode") == "hybrid_rrf":
             break
         await asyncio.sleep(5)
 
@@ -313,7 +315,7 @@ async def run_context_integration_test(client: "FastMCPClient") -> QualitativeRe
         "namespace": namespace,
         "scope_id": "agent-session-1",
         "source": "agent",
-        "tags": ["#decision", "#architecture"],
+        "tags": ["#decision", "#architecture", "#benchmark"],
         "metadata": {"made_by": "agent", "rationale": "ACID + JSON"},
     })
     decision_id = write_result.data["record"]["id"]
@@ -371,6 +373,7 @@ async def run_namespace_isolation_test(client: "FastMCPClient") -> QualitativeRe
         "content": "UNIQUE_SECRET_KEY_ABC123XYZ This belongs only to namespace A",
         "type": "test", "namespace": ns_a,
         "scope_id": "isolation", "source": "benchmark",
+        "tags": ["#benchmark"],
     }
     result_a = await client.call_tool("memory.write", arguments=memory_a)
     id_a = result_a.data["record"]["id"]
@@ -379,6 +382,7 @@ async def run_namespace_isolation_test(client: "FastMCPClient") -> QualitativeRe
         "content": "DIFFERENT_SECRET_KEY_DEF456 This belongs only to namespace B",
         "type": "test", "namespace": ns_b,
         "scope_id": "isolation", "source": "benchmark",
+        "tags": ["#benchmark"],
     }
     result_b = await client.call_tool("memory.write", arguments=memory_b)
     id_b = result_b.data["record"]["id"]
@@ -427,6 +431,7 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
                 "content": f"Reliability test memory {index}",
                 "type": "test", "namespace": "benchmark",
                 "scope_id": "reliability-test", "source": "benchmark",
+                "tags": ["#benchmark"],
             })
             return True, result.data["record"]["id"]
         except Exception as e:
@@ -562,13 +567,15 @@ async def run_token_overhead_test(client: "FastMCPClient") -> QualitativeResult:
             "content": f"Memory {i}: Project context about architecture decisions for the authentication system.",
             "type": "test", "namespace": namespace,
             "scope_id": "token-test", "source": "benchmark",
+            "tags": ["#benchmark"],
         })
 
-    # Wait for coverage
+    # Wait until search can use hybrid mode for this namespace
     for _ in range(60):
-        health = await client.call_tool("memory.health", arguments={})
-        coverage = health.data.get("qdrant_coverage_ratio", 0)
-        if coverage >= 0.80:
+        probe = await client.call_tool("memory.search", arguments={
+            "query": "authentication", "namespace": namespace, "limit": 1,
+        })
+        if probe.data.get("search_mode") == "hybrid_rrf":
             break
         await asyncio.sleep(5)
 
