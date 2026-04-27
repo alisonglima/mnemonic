@@ -18,6 +18,12 @@ class Database:
 
     def initialize(self) -> None:
         with self.connect() as conn:
+            # Disable automatic WAL checkpoint — we manage it explicitly
+            conn.execute("PRAGMA wal_autocheckpoint = 0")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")  # WAL + NORMAL is durable and faster
+            conn.commit()
+
             version = conn.execute("PRAGMA user_version").fetchone()[0]
 
             for migration in MIGRATIONS:
@@ -33,3 +39,8 @@ class Database:
                 conn.execute(f"PRAGMA user_version = {migration_version}")
                 conn.commit()
                 version = migration_version
+
+    def run_wal_checkpoint(self) -> None:
+        """Run a passive WAL checkpoint to control WAL file growth."""
+        with self.connect() as conn:
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
