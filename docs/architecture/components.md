@@ -51,13 +51,14 @@ Manages the Qdrant collection.
 
 - `is_available()` — checks Qdrant connectivity
 - `ensure_collection()` — creates collection if missing
-- `upsert(record)` — writes a record as a vector point (8-dim SHA-256 hash of content)
+- `upsert(record)` — writes a record as a vector point
 - `delete(memory_id)` — removes a point
 - `query(...)` — searches the collection
 
-**Vector strategy:** Deterministic SHA-256 hash projection via `simple_embed()`. Not a semantic embedding model. Provides rough similarity grouping.
+**Vector strategy:** Controlled by `EMBEDDING_STRATEGY` env var.
 
-The embedder uses the first 8 bytes of the SHA-256 digest of the lowercased content, normalized to `[-1, 1]`.
+- `ollama` (recommended): uses Ollama `nomic-embed-text` (768-dim real semantic embeddings) via `OllamaEmbeddingProvider`. Falls back to hash if Ollama is unavailable.
+- `hash` (default/fallback): deterministic SHA-256 hash projection (8-dim). Provides rough similarity grouping, not semantic understanding. No external model required.
 
 ## `ObsidianProjectionStore`
 
@@ -85,7 +86,7 @@ Background worker that processes pending projection events.
 Returns system status for `memory.health`:
 - `sqlite` — SQLite file exists
 - `qdrant` — Qdrant `/healthz` returns 2xx
-- `ollama` — `up`/`down` based on /api/tags health check when OLLAMA_URL is configured; not used for embeddings/projections yet
+- `ollama` — `up`/`down` based on /api/tags health check when OLLAMA_URL is configured; used for embeddings when `EMBEDDING_STRATEGY=ollama`
 - `worker` — outbox worker status
 - `obsidian_projection` — Obsidian vault path exists
 - `degraded` — true when Qdrant or Obsidian projection is unavailable

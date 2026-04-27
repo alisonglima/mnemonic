@@ -78,3 +78,30 @@ PYTHONPATH=mcp-memory/src python3 mcp-memory/scripts/init_db.py
 - `docker compose up --build` must be run from the repository root.
 - If port 8080 is already in use, stop the existing container or change the mapped port in `docker-compose.yml`.
 - On Apple Silicon, some base images may need `--platform linux/amd64` added to the Dockerfile.
+
+## MCP calls feel slow
+
+**Every call via Docker has a fixed ~38ms base overhead** from MCP SSE transport and Docker bridge networking. This is independent of content size. If call latency matters, run the server natively:
+
+```bash
+make run   # or: PYTHONPATH=mcp-memory/src python -m mcp_memory.main --host 127.0.0.1 --port 8080 --serve
+```
+
+Native mode reduces per-call latency to ~5–10ms. You lose the isolated Qdrant and Ollama containers, but SQLite-only search still works.
+
+## Write throughput drops after many writes
+
+Sequential write throughput degrades from ~78 ops/sec (100 records) to ~34 ops/sec (500 records). This is caused by Qdrant outbox event accumulation and WAL checkpoint pressure under sustained load.
+
+Mitigations:
+- Use `memory.batch_write` to write multiple records in a single round-trip.
+- Run `make reindex` after heavy write sessions to flush the outbox and compact WAL.
+- If Qdrant is not needed, set `QDRANT_URL=` (empty) to run SQLite-only and eliminate vector projection overhead.
+
+## High latency on concurrent writes
+
+At concurrency ≥20, SQLite WAL write lock contention produces tail latencies of 1–3s. SQLite allows only one writer at a time.
+
+- Reduce write concurrency in your agent workflow.
+- Use `memory.batch_write` to serialize multiple records into one call.
+- Concurrent reads are unaffected.

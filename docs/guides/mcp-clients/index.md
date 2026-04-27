@@ -2,6 +2,25 @@
 
 Mnemonic exposes an HTTP MCP server. Any MCP-compatible client can connect using the server address and tool names listed below.
 
+## Deployment context
+
+Mnemonic is designed for single-user local deployments. The MCP endpoint has no authentication — this is intentional:
+
+- **Local use:** OS-level isolation protects port 8080. Only local processes can reach it.
+- **Remote access via private VPN** (e.g. MikroTik Back to Home): the VPN is the security boundary. Point the client URL at your machine's LAN IP instead of `localhost`. No server changes needed.
+- **Shared/semi-public deployments:** add a reverse proxy (Caddy, nginx) with auth in front of port 8080. This is transparent to all MCP clients.
+
+See [FAQ — Does Mnemonic require authentication?](../../../FAQ.md) for details.
+
+## Expected latency
+
+| Deployment mode | Per-call base overhead |
+|----------------|----------------------|
+| Docker (`docker compose up`) | ~38ms |
+| Native (`make run`) | ~5–10ms |
+
+Search average latency is ~45ms via Docker. Write average is 12–28ms. See [Performance Reference](../../reference/performance.md) for full benchmark data.
+
 ## Client setup guides
 
 - [OpenCode](opencode.md) — primary supported client

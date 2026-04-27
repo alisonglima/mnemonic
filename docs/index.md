@@ -8,7 +8,7 @@
 
 - **Local-first design** — SQLite as source of truth, Qdrant for vector projections, Obsidian for human-readable Markdown.
 - **Dual-write pipeline** — Async outbox pattern projects records to your Obsidian vault without blocking MCP operations.
-- **Deterministic vector projections** — SHA-256 hash projections (8-dim) provide approximate similarity lookup without external models. Not true semantic embeddings.
+- **Hybrid vector projections** — Ollama `nomic-embed-text` (768-dim) when available; SHA-256 hash fallback (8-dim) otherwise. Controlled by `EMBEDDING_STRATEGY`.
 
 ## MCP Tools
 
@@ -75,6 +75,7 @@ Mnemonic exposes MCP tools over FastMCP SSE:
 
 - [Environment variables](reference/environment-variables.md) — Full variable reference
 - [CLI and scripts](reference/cli-and-scripts.md) — Server CLI and maintenance scripts
+- [Performance](reference/performance.md) — Benchmark results, latency characteristics, known limitations
 - [Troubleshooting](reference/troubleshooting.md) — Common issues and solutions
 
 ## Project status

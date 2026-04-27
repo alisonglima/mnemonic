@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-04-27
+
+### Documentation
+
+- **ROADMAP** restructured: completed phases (1–4) archived with labels; three new forward-looking sections added — *Performance & Reliability*, *Security & Deployment*, and *Later* — driven by benchmark findings from v0.1.1.
+- **Performance reference** (`docs/reference/performance.md`): new document with full benchmark results (write throughput, search latency, base overhead, qualitative scores), root-cause explanations, and known limitations.
+- **FAQ**: added Q&A for authentication (no-auth rationale for local/VPN use), expected performance, and remote access via private VPN. Fixed incorrect description of Ollama (was "not used for embeddings" — Ollama has been used for embeddings since Phase 4).
+- **Troubleshooting**: added three new entries — "MCP calls feel slow" (38ms Docker overhead, `make run` as solution), sequential write degradation at scale, and concurrent write instability.
+- **Architecture docs** (`components.md`, `overview.md`): corrected two factual errors — `QdrantProjectionStore` now accurately describes the Ollama + hash fallback embedding strategy; health service Ollama description updated to reflect actual embedding use.
+- **MCP client index** (`docs/guides/mcp-clients/index.md`): added deployment context section (local-only, VPN, proxy) and per-call latency table linking to the new performance reference.
+- **Docs index** (`docs/index.md`): updated embedding description from "deterministic hash only" to "Ollama + hash fallback"; added link to performance reference.
+
 ## [0.1.1] — 2026-04-27
 
 ### Added
