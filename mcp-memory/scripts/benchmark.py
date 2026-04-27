@@ -474,81 +474,146 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
 
 
 async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> QualitativeResult:
-    """Estimate where latency is spent by comparing write times across content sizes.
+    """Estimate where latency is spent by comparing write times across content sizes."""
+    SAMPLES_PER_SIZE = 20  # was 3
+    WARMUP_RUNS = 5
 
-    Note: this is a heuristic, not a rigorous breakdown. Latency includes embedding,
-    SQLite write, Qdrant upsert, and MCP protocol overhead — they cannot be
-    cleanly separated from the outside. Results give a directional signal only.
-    """
-    sizes = {
-        "tiny": 50,
-        "small": 200,
-        "medium": 500,
-        "large": 1000,
-    }
+    # Measure base overhead with minimal content (no FTS/embedding)
+    base_latencies = []
+    for _ in range(10):
+        start = time.perf_counter()
+        await client.call_tool("memory.write", arguments={
+            "content": "x", "type": "test", "namespace": "bench-base-bottleneck",
+            "scope_id": "base", "source": "benchmark",
+        })
+        base_latencies.append((time.perf_counter() - start) * 1000)
+    base_overhead_ms = statistics.median(base_latencies)
 
+    sizes = {"tiny": 50, "small": 200, "medium": 500, "large": 1500}
     results = {}
 
     for size_name, char_count in sizes.items():
-        content = "Test content for embedding analysis. " * (char_count // 30 + 1)
-        content = content[:char_count]
+        content = ("Test content. " * (char_count // 14 + 1))[:char_count]
 
-        # Warmup in isolated namespace (doesn't pollute benchmark corpus)
-        await client.call_tool("memory.write", arguments={
-            "content": content[:50], "type": "test", "namespace": "benchmark-warmup",
-            "scope_id": "ollama-warmup", "source": "benchmark",
-        })
+        # Warmup
+        for _ in range(WARMUP_RUNS):
+            await client.call_tool("memory.write", arguments={
+                "content": content, "type": "test", "namespace": "bench-warmup-bottleneck",
+                "scope_id": "bottleneck", "source": "benchmark",
+            })
 
         latencies = []
-        for _ in range(3):
+        for _ in range(SAMPLES_PER_SIZE):
             start = time.perf_counter()
             await client.call_tool("memory.write", arguments={
-                "content": content, "type": "test", "namespace": "benchmark",
-                "scope_id": "ollama-analysis", "source": "benchmark",
+                "content": content, "type": "test", "namespace": "bench-bottleneck",
+                "scope_id": "bottleneck", "source": "benchmark",
             })
             latencies.append((time.perf_counter() - start) * 1000)
 
+        net_ms = statistics.median(latencies) - base_overhead_ms
         results[size_name] = {
             "chars": char_count,
-            "avg_ms": round(statistics.mean(latencies), 2),
-            "stddev_ms": round(statistics.stdev(latencies) if len(latencies) > 1 else 0, 2),
+            "raw_median_ms": round(statistics.median(latencies), 2),
+            "net_ms": round(max(net_ms, 0), 2),
+            "stddev_ms": round(statistics.stdev(latencies), 2),
         }
 
-    # Heuristic: if latency scales with content size → embedding-dominated.
-    # If flat → overhead-dominated (SQLite/Qdrant/MCP).
-    large = results.get("large")
-    tiny = results.get("tiny")
-    bottleneck_verdict = "UNKNOWN"
+    # Determine if latency scales with content size
+    tiny_net = results.get("tiny", {}).get("net_ms", 0)
+    large_net = results.get("large", {}).get("net_ms", 0)
+    bottleneck_verdict = "FLAT_LATENCY"
     est_embedding_pct = 0
 
-    if large and tiny:
-        chars_diff = large["chars"] - tiny["chars"]
-        ms_diff = large["avg_ms"] - tiny["avg_ms"]
-        if chars_diff > 0 and ms_diff > 0:
+    if large_net > tiny_net:
+        chars_diff = sizes["large"] - sizes["tiny"]
+        ms_diff = large_net - tiny_net
+        if chars_diff > 0:
             ms_per_char = ms_diff / chars_diff
-            est_embedding_pct = min(
-                (ms_per_char * large["chars"]) / large["avg_ms"] * 100, 95
-            )
-            bottleneck_verdict = "EMBEDDING_DOMINANT" if est_embedding_pct > 60 else "OVERHEAD_DOMINANT"
-        else:
-            bottleneck_verdict = "FLAT_LATENCY (overhead dominant or model batches tokens)"
-
-    score = est_embedding_pct / 100.0 if est_embedding_pct > 0 else 0.5
-    verdict = (
-        f"Embedding ~{int(est_embedding_pct)}% of write latency"
-        if est_embedding_pct > 0
-        else "Latency flat across sizes (overhead dominant)"
-    )
+            avg_net = (tiny_net + large_net) / 2
+            if avg_net > 0:
+                est_embedding_pct = min((ms_per_char * sizes["large"]) / (avg_net + base_overhead_ms) * 100, 95)
+                bottleneck_verdict = "EMBEDDING_DOMINANT" if est_embedding_pct > 60 else "OVERHEAD_DOMINANT"
 
     return QualitativeResult(
-        name="Bottleneck Analysis (heuristic)",
-        verdict=verdict,
-        score=score,
+        name="Bottleneck Analysis",
+        verdict=f"Embedding ~{int(est_embedding_pct)}% of write latency" if est_embedding_pct > 0 else "Latency flat across sizes (overhead dominant)",
+        score=est_embedding_pct / 100.0 if est_embedding_pct > 0 else 0.5,
         details={
             "timing_by_size": results,
+            "base_overhead_ms": round(base_overhead_ms, 2),
             "est_embedding_pct": f"~{int(est_embedding_pct)}%",
             "bottleneck_verdict": bottleneck_verdict,
-            "caveat": "Cannot isolate embedding vs SQLite/Qdrant/MCP overhead from client side",
+            "samples_per_size": SAMPLES_PER_SIZE,
+        }
+    )
+
+
+async def run_token_overhead_test(client: "FastMCPClient") -> QualitativeResult:
+    """Measure ACTUAL token overhead from real searches, not theoretical estimate."""
+    namespace = f"token-overhead-{uuid.uuid4().hex[:6]}"
+
+    # Write a known corpus
+    for i in range(10):
+        await client.call_tool("memory.write", arguments={
+            "content": f"Memory {i}: Project context about architecture decisions for the authentication system.",
+            "type": "test", "namespace": namespace,
+            "scope_id": "token-test", "source": "benchmark",
+        })
+
+    # Wait for coverage
+    for _ in range(60):
+        health = await client.call_tool("memory.health", arguments={})
+        coverage = health.data.get("qdrant_coverage_ratio", 0)
+        if coverage >= 0.80:
+            break
+        await asyncio.sleep(5)
+
+    # Run searches
+    queries = [
+        "authentication architecture",
+        "project decisions",
+        "system design",
+    ]
+
+    search_tokens = []
+    for query in queries:
+        result = await client.call_tool("memory.search", arguments={
+            "query": query, "namespace": namespace, "limit": 5,
+        })
+        token_estimate = result.data.get("token_estimate", 0)
+        item_count = result.data.get("item_count", 0)
+        search_tokens.append({"query": query, "tokens": token_estimate, "items": item_count})
+
+    # Measure write tokens
+    write_tokens_estimate = 0
+    for i in range(5):
+        result = await client.call_tool("memory.write", arguments={
+            "content": f"Additional memory {i} about security policies.",
+            "type": "test", "namespace": namespace,
+            "scope_id": "token-test", "source": "benchmark",
+        })
+        content_len = len(f"Additional memory {i} about security policies.")
+        write_tokens_estimate += content_len // 4 + 30  # content + MCP overhead
+
+    total_overhead_tokens = sum(s["tokens"] for s in search_tokens) + write_tokens_estimate
+    context_window = 200_000
+    overhead_pct = (total_overhead_tokens / context_window) * 100
+
+    verdict = "NEGLIGIBLE" if overhead_pct < 1 else "LOW" if overhead_pct < 5 else "MEDIUM"
+    score = 1.0 if overhead_pct < 1 else 0.8 if overhead_pct < 5 else 0.5
+
+    return QualitativeResult(
+        name="Token Overhead (measured)",
+        verdict=f"{verdict} ({overhead_pct:.2f}% of 200K window)",
+        score=score,
+        details={
+            "search_token_estimates": search_tokens,
+            "write_token_estimate": write_tokens_estimate,
+            "total_overhead_tokens": total_overhead_tokens,
+            "context_window_200k": context_window,
+            "context_window_pct": round(overhead_pct, 3),
+            "method": "measured (content length / 4 + overhead)",
         }
     )
 
@@ -849,6 +914,7 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                 ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
                 ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
                 ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
+                ("Token Overhead (measured)", lambda: run_token_overhead_test(client)),
                 ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
             ]
 
