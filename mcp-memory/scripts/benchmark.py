@@ -926,6 +926,18 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
             # Track qualitative namespaces for cleanup
             qualitative_namespaces: list[str] = []
 
+            def _collect_ns(result, namespaces):
+                ns = result.details.get("namespace")
+                if ns:
+                    namespaces.append(ns)
+                for key in ("namespace_A", "namespace_B"):
+                    ns = result.details.get(key)
+                    if ns:
+                        namespaces.append(ns)
+                for ns in result.details.get("_namespaces", []):
+                    if ns not in namespaces:
+                        namespaces.append(ns)
+
             # ── Recall test runs FIRST, before any perf writes create backlog ──
             # This ensures the outbox queue is near-empty when recall writes its
             # 21 records, keeping the index-wait poll loop fast (<30s).
@@ -970,18 +982,6 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
 
             # ── Qualitative Assessment ────────────────────────────────────
             print("\n=== Qualitative Assessment ===")
-
-            def _collect_ns(result, namespaces):
-                ns = result.details.get("namespace")
-                if ns:
-                    namespaces.append(ns)
-                for key in ("namespace_A", "namespace_B"):
-                    ns = result.details.get(key)
-                    if ns:
-                        namespaces.append(ns)
-                for ns in result.details.get("_namespaces", []):
-                    if ns not in namespaces:
-                        namespaces.append(ns)
 
             if not recall_only:
                 qual_fns = [
