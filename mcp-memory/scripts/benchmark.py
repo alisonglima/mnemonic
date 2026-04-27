@@ -229,7 +229,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
     }
     write_result = await client.call_tool("memory.write", arguments=target_memory)
     memory_id = write_result.data["record"]["id"]
-    record_version = write_result.data["record"]["version"]
+    record_version = write_result.data["record"].get("version", 1)
 
     # Write distractors — enough to make top-3 rank meaningful
     for i in range(20):
@@ -249,7 +249,6 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
     indexed = False
     waited_seconds = 0
     for attempt in range(120):
-        await asyncio.sleep(1.0)
         waited_seconds = attempt + 1
         target_ready = False
         hybrid_ready = False
@@ -275,6 +274,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
         if target_ready and hybrid_ready:
             indexed = True
             break
+        await asyncio.sleep(1.0)
     # ─────────────────────────────────────────────────────────────────────────
 
     # Search WITHOUT scope_id to leverage broad namespace-level coverage for hybrid_rrf.

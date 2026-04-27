@@ -284,3 +284,46 @@ def test_hybrid_rrf_uses_zero_score_threshold() -> None:
         )
     finally:
         tmpdir.cleanup()
+
+
+def test_non_hybrid_path_respects_score_threshold() -> None:
+    """FTS fallback path must still respect the configured score_threshold."""
+    from mcp_memory.qdrant_store import QdrantProjectionStore
+    from unittest.mock import MagicMock
+
+    captured_threshold = []
+
+    def track_query(**kwargs):
+        captured_threshold.append(kwargs.get("score_threshold"))
+        return []
+
+    tmpdir = tempfile.TemporaryDirectory()
+    try:
+        tmp_path = Path(tmpdir.name)
+        repo = _repo(tmp_path)
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
+        mock_qdrant.is_available.return_value = True
+        mock_qdrant.query = track_query
+
+        # Create a record without projecting it → namespace has 1 unindexed record →
+        # coverage_ratio drops to 0.0, forcing FTS fallback.
+        repo.create_memory(
+            content="unindexed record",
+            type="test", namespace="ns", scope_id="s", source="test",
+        )
+
+        service = SearchService(repo, qdrant_store=mock_qdrant, score_threshold=0.5)
+
+        result = service.search(query="test", namespace="ns", limit=5)
+
+        # Qdrant.query should NOT have been called (FTS path doesn't call Qdrant)
+        assert len(captured_threshold) == 0, (
+            f"FTS fallback must not call Qdrant.query, got {len(captured_threshold)} calls"
+        )
+        assert result.search_mode == "fts_sqlite", (
+            f"Expected fts_sqlite search mode, got {result.search_mode}"
+        )
+    finally:
+        tmpdir.cleanup()
