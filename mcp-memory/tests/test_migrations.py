@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mcp_memory.database import Database
-from mcp_memory.migrations import SCHEMA
+from mcp_memory.migrations import CURRENT_SCHEMA_VERSION, SCHEMA
 
 
 @pytest.fixture
@@ -43,3 +43,23 @@ def test_existing_v1_database_with_user_version_zero_migrates_to_v2(tmp_path):
     assert version == 2, f"Expected version 2, got {version}"
     assert "qdrant_content_hash" in columns
     assert "qdrant_embedding_fingerprint" in columns
+
+
+def test_migration_runner_sets_user_version_correctly(tmp_path):
+    """Regression: PRAGMA user_version must persist after migration."""
+    db = Database(tmp_path / "memory.db")
+    db.initialize()
+
+    with db.connect() as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == CURRENT_SCHEMA_VERSION, f"user_version should be {CURRENT_SCHEMA_VERSION}, got {version}"
+
+
+def test_initialize_is_idempotent(tmp_path):
+    """initialize() called twice must not crash (duplicate column names)."""
+    db = Database(tmp_path / "memory.db")
+    db.initialize()
+    db.initialize()
+    with db.connect() as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == CURRENT_SCHEMA_VERSION

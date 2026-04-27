@@ -25,10 +25,11 @@ class Database:
                 if migration_version <= version:
                     continue
 
-                conn.executescript(f"""
-BEGIN IMMEDIATE;
-{migration["sql"]}
-PRAGMA user_version = {migration_version};
-COMMIT;
-""")
+                # Run migration SQL — executescript handles DDL (CREATE TABLE, ALTER TABLE)
+                conn.executescript(migration["sql"])
+
+                # Set user_version AFTER migration SQL succeeds — separate from executescript
+                # to guarantee it's committed. executescript + PRAGMA user_version is unreliable.
+                conn.execute(f"PRAGMA user_version = {migration_version}")
+                conn.commit()
                 version = migration_version
