@@ -52,11 +52,12 @@ VersionConflictError — raised when expected_version != current version.
 
 ## Outbox events not processing
 
-Check `memory.health` for `pending_events` count and `oldest_pending_age_seconds`. If events are stuck:
+Check `memory.health` for `pending_events` count and `qdrant_coverage_ratio`. A low coverage ratio indicates the Qdrant index is falling behind. If coverage stays below 80% under idle load:
 
 - The outbox worker background thread may have crashed. Restart the server.
 - Events that fail are rescheduled with exponential backoff (up to 300s). Check `memory_projections` table for error messages.
 - To force reprocessing, restart the server.
+- Run `make reindex` to rebuild the Qdrant index from SQLite if recovery is needed.
 
 ## `make test` fails
 

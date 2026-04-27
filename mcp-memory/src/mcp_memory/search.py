@@ -9,8 +9,7 @@ from mcp_memory.qdrant_store import QdrantProjectionStore
 from mcp_memory.repository import MemoryRepository
 
 
-# Freshness threshold in seconds — if Qdrant projection is older than this, use SQLite fallback
-QRANT_STALENESS_THRESHOLD_SECONDS = 10
+QDRANT_MIN_COVERAGE_RATIO = 0.80  # Use hybrid_rrf if >=80% of vectors are current
 
 
 def expand_query(query: str) -> str:
@@ -35,6 +34,10 @@ def expand_query(query: str) -> str:
         'config': ['configuration'],
         'auth': ['authentication', 'authorization'],
         'api': ['interface'],
+        'python': ['programming', 'script', 'code'],
+        'context': ['background', 'history', 'prior', 'session'],
+        'search': ['query', 'find', 'retrieve', 'lookup'],
+        'write': ['save', 'store', 'create', 'record'],
     }
     query_lower = query.lower()
     for term, syns in synonyms.items():
@@ -61,14 +64,14 @@ def expand_query(query: str) -> str:
 def rrf_fusion(
     fts_results: List[Tuple[str, float]],  # (memory_id, bm25_rank)
     vector_ids: List[str],  # memory_ids in rank order
-    k: int = 60,
+    k: int = 30,
 ) -> List[str]:
     """Reciprocal Rank Fusion over FTS and vector results.
 
     Args:
         fts_results: List of (memory_id, bm25_rank) from search_fts
         vector_ids: List of memory_ids from Qdrant (ordered by cosine similarity)
-        k: RRF smoothing parameter (default 60)
+        k: RRF smoothing parameter (default 30)
 
     Returns:
         List of memory_ids sorted by fused RRF score (descending)
@@ -99,15 +102,22 @@ class SearchService:
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
         self.score_threshold = score_threshold
 
-    def _qdrant_freshness_seconds(self) -> int:
-        """Return how many seconds the oldest pending outbox event has been waiting.
-
-        Returns 0 if no pending events (Qdrant is fully caught up).
-        """
-        count = self.repository.pending_outbox_count()
-        if count == 0:
-            return 0
-        return self.repository.oldest_pending_age_seconds()
+    def _qdrant_is_fresh_enough(
+        self,
+        namespace: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        include_archived: bool = False,
+    ) -> bool:
+        """Return True if Qdrant has sufficient coverage for hybrid search."""
+        if not self.qdrant_store.enabled:
+            return True
+        if not self.qdrant_store.is_available():
+            return False
+        coverage = self.repository.qdrant_coverage_ratio(
+            namespace=namespace, scope_id=scope_id,
+            include_archived=include_archived,
+        )
+        return coverage >= QDRANT_MIN_COVERAGE_RATIO
 
     def search(
         self,
@@ -138,54 +148,55 @@ class SearchService:
             return SearchResult(items=items, search_mode="fallback_sqlite", degraded=False, freshness_seconds=0)
 
         qdrant_available = self.qdrant_store.is_available()
-        freshness_seconds = self._qdrant_freshness_seconds()
-        qdrant_stale = freshness_seconds > QRANT_STALENESS_THRESHOLD_SECONDS
+        coverage_ok = self._qdrant_is_fresh_enough(
+            namespace=namespace, scope_id=scope_id,
+            include_archived=include_archived,
+        )
 
-        if not qdrant_available or qdrant_stale:
-            # FTS-only mode — expand query here before calling search_fts
-            fts_query = expand_query(query)
+        if not qdrant_available or not coverage_ok:
             fts_results = self.repository.search_fts(
-                query=fts_query, namespace=namespace, limit=limit * 3,
+                query=query, namespace=namespace, limit=limit * 3,
                 scope_id=scope_id, types=types, status=status,
-                include_archived=include_archived,
+                include_archived=include_archived, expand=True,
             )
             memory_ids = [id for id, _ in fts_results]
             records = [r for r in self.repository.get_memory_bulk(memory_ids) if r is not None]
             return SearchResult(
                 items=records[:limit],
                 search_mode="fts_sqlite",
-                degraded=qdrant_stale or (not qdrant_available and self.qdrant_store.enabled),
-                freshness_seconds=freshness_seconds,
+                degraded=self.qdrant_store.enabled and (not qdrant_available or not coverage_ok),
+                freshness_seconds=0,
             )
 
-        # Hybrid RRF mode — expand query once, use for both paths
-        fts_query = expand_query(query)
-
+        # Hybrid RRF mode
         fts_results = self.repository.search_fts(
-            query=fts_query, namespace=namespace, limit=50,
+            query=query, namespace=namespace, limit=100,
             scope_id=scope_id, types=types, status="active",
-            include_archived=include_archived,
+            include_archived=include_archived, expand=True,
         )
 
         vector_hits = self.qdrant_store.query(
             query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
             namespace=namespace, scope_id=scope_id,
-            types=types, include_archived=include_archived, limit=50,
+            types=types, include_archived=include_archived, limit=100,
             score_threshold=self.score_threshold,
         )
         vector_ids = [hit.id for hit in vector_hits]
 
         # RRF fusion
-        fused_ids = rrf_fusion(fts_results, vector_ids, k=60)
+        fused_ids = rrf_fusion(fts_results, vector_ids, k=30)
 
         # Bulk hydration
         fused_records = self.repository.get_memory_bulk(fused_ids)
         record_map = {r.id: r for r in fused_records if r is not None}
+        # Filter archived records unless explicitly requested
+        if not include_archived:
+            record_map = {k: v for k, v in record_map.items() if v.status != 'archived'}
         items = [record_map[id] for id in fused_ids if id in record_map][:limit]
 
         return SearchResult(
             items=items,
             search_mode="hybrid_rrf",
             degraded=False,
-            freshness_seconds=freshness_seconds,
+            freshness_seconds=0,
         )

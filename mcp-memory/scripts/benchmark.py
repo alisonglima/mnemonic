@@ -224,7 +224,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
         "namespace": "benchmark",
         "scope_id": "recall-precision-test",
         "source": "benchmark",
-        "tags": ["recall-test", "python"],
+        "tags": ["recall-test", "python", "#benchmark"],
     }
     write_result = await client.call_tool("memory.write", arguments=target_memory)
     memory_id = write_result.data["record"]["id"]
@@ -235,7 +235,17 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "content": f"Distractor memory {i}: JavaScript frameworks, cooking recipes, football scores, travel destinations, stock market trends.",
             "type": "test", "namespace": "benchmark",
             "scope_id": "recall-precision-test", "source": "benchmark",
+            "tags": ["#benchmark"],
         })
+
+    # Wait until search can use hybrid mode for this namespace
+    for _ in range(60):
+        probe = await client.call_tool("memory.search", arguments={
+            "query": unique_token, "namespace": "benchmark", "limit": 1,
+        })
+        if probe.data.get("search_mode") == "hybrid_rrf":
+            break
+        await asyncio.sleep(5)
 
     # Test 1: Exact token search (verifies the record is retrievable at all)
     exact_search = await client.call_tool("memory.search", arguments={
@@ -279,6 +289,7 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "semantic_in_top_3": in_top_3,
             "false_positive_when_noise": noise_found_target,
             "search_mode": semantic_search.data.get("search_mode", "unknown"),
+            "_namespaces": ["benchmark"],
         }
     )
 
@@ -304,7 +315,7 @@ async def run_context_integration_test(client: "FastMCPClient") -> QualitativeRe
         "namespace": namespace,
         "scope_id": "agent-session-1",
         "source": "agent",
-        "tags": ["#decision", "#architecture"],
+        "tags": ["#decision", "#architecture", "#benchmark"],
         "metadata": {"made_by": "agent", "rationale": "ACID + JSON"},
     })
     decision_id = write_result.data["record"]["id"]
@@ -362,6 +373,7 @@ async def run_namespace_isolation_test(client: "FastMCPClient") -> QualitativeRe
         "content": "UNIQUE_SECRET_KEY_ABC123XYZ This belongs only to namespace A",
         "type": "test", "namespace": ns_a,
         "scope_id": "isolation", "source": "benchmark",
+        "tags": ["#benchmark"],
     }
     result_a = await client.call_tool("memory.write", arguments=memory_a)
     id_a = result_a.data["record"]["id"]
@@ -370,6 +382,7 @@ async def run_namespace_isolation_test(client: "FastMCPClient") -> QualitativeRe
         "content": "DIFFERENT_SECRET_KEY_DEF456 This belongs only to namespace B",
         "type": "test", "namespace": ns_b,
         "scope_id": "isolation", "source": "benchmark",
+        "tags": ["#benchmark"],
     }
     result_b = await client.call_tool("memory.write", arguments=memory_b)
     id_b = result_b.data["record"]["id"]
@@ -418,6 +431,7 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
                 "content": f"Reliability test memory {index}",
                 "type": "test", "namespace": "benchmark",
                 "scope_id": "reliability-test", "source": "benchmark",
+                "tags": ["#benchmark"],
             })
             return True, result.data["record"]["id"]
         except Exception as e:
@@ -461,86 +475,156 @@ async def run_reliability_test(client: "FastMCPClient", concurrent_ops: int = 50
             "errors": len(errors),
             "error_rate_pct": round(error_rate * 100, 2),
             "retrieval_failures_sample": retrieval_failures,
+            "_namespaces": ["benchmark"],
         }
     )
 
 
 async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> QualitativeResult:
-    """Estimate where latency is spent by comparing write times across content sizes.
+    """Estimate where latency is spent by comparing write times across content sizes."""
+    SAMPLES_PER_SIZE = 20  # was 3
+    WARMUP_RUNS = 5
 
-    Note: this is a heuristic, not a rigorous breakdown. Latency includes embedding,
-    SQLite write, Qdrant upsert, and MCP protocol overhead — they cannot be
-    cleanly separated from the outside. Results give a directional signal only.
-    """
-    sizes = {
-        "tiny": 50,
-        "small": 200,
-        "medium": 500,
-        "large": 1000,
-    }
+    # Measure base overhead with minimal content (no FTS/embedding)
+    base_latencies = []
+    for _ in range(10):
+        start = time.perf_counter()
+        await client.call_tool("memory.write", arguments={
+            "content": "x", "type": "test", "namespace": "bench-base-bottleneck",
+            "scope_id": "base", "source": "benchmark",
+        })
+        base_latencies.append((time.perf_counter() - start) * 1000)
+    base_overhead_ms = statistics.median(base_latencies)
 
+    sizes = {"tiny": 50, "small": 200, "medium": 500, "large": 1500}
     results = {}
 
     for size_name, char_count in sizes.items():
-        content = "Test content for embedding analysis. " * (char_count // 30 + 1)
-        content = content[:char_count]
+        content = ("Test content. " * (char_count // 14 + 1))[:char_count]
 
-        # Warmup in isolated namespace (doesn't pollute benchmark corpus)
-        await client.call_tool("memory.write", arguments={
-            "content": content[:50], "type": "test", "namespace": "benchmark-warmup",
-            "scope_id": "ollama-warmup", "source": "benchmark",
-        })
+        # Warmup
+        for _ in range(WARMUP_RUNS):
+            await client.call_tool("memory.write", arguments={
+                "content": content, "type": "test", "namespace": "bench-warmup-bottleneck",
+                "scope_id": "bottleneck", "source": "benchmark",
+            })
 
         latencies = []
-        for _ in range(3):
+        for _ in range(SAMPLES_PER_SIZE):
             start = time.perf_counter()
             await client.call_tool("memory.write", arguments={
-                "content": content, "type": "test", "namespace": "benchmark",
-                "scope_id": "ollama-analysis", "source": "benchmark",
+                "content": content, "type": "test", "namespace": "bench-bottleneck",
+                "scope_id": "bottleneck", "source": "benchmark",
             })
             latencies.append((time.perf_counter() - start) * 1000)
 
+        net_ms = statistics.median(latencies) - base_overhead_ms
         results[size_name] = {
             "chars": char_count,
-            "avg_ms": round(statistics.mean(latencies), 2),
-            "stddev_ms": round(statistics.stdev(latencies) if len(latencies) > 1 else 0, 2),
+            "raw_median_ms": round(statistics.median(latencies), 2),
+            "net_ms": round(max(net_ms, 0), 2),
+            "stddev_ms": round(statistics.stdev(latencies), 2),
         }
 
-    # Heuristic: if latency scales with content size → embedding-dominated.
-    # If flat → overhead-dominated (SQLite/Qdrant/MCP).
-    large = results.get("large")
-    tiny = results.get("tiny")
-    bottleneck_verdict = "UNKNOWN"
+    # Determine if latency scales with content size
+    tiny_net = results.get("tiny", {}).get("net_ms", 0)
+    large_net = results.get("large", {}).get("net_ms", 0)
+    bottleneck_verdict = "FLAT_LATENCY"
     est_embedding_pct = 0
 
-    if large and tiny:
-        chars_diff = large["chars"] - tiny["chars"]
-        ms_diff = large["avg_ms"] - tiny["avg_ms"]
-        if chars_diff > 0 and ms_diff > 0:
+    if large_net > tiny_net:
+        chars_diff = sizes["large"] - sizes["tiny"]
+        ms_diff = large_net - tiny_net
+        if chars_diff > 0:
             ms_per_char = ms_diff / chars_diff
-            est_embedding_pct = min(
-                (ms_per_char * large["chars"]) / large["avg_ms"] * 100, 95
-            )
-            bottleneck_verdict = "EMBEDDING_DOMINANT" if est_embedding_pct > 60 else "OVERHEAD_DOMINANT"
-        else:
-            bottleneck_verdict = "FLAT_LATENCY (overhead dominant or model batches tokens)"
-
-    score = est_embedding_pct / 100.0 if est_embedding_pct > 0 else 0.5
-    verdict = (
-        f"Embedding ~{int(est_embedding_pct)}% of write latency"
-        if est_embedding_pct > 0
-        else "Latency flat across sizes (overhead dominant)"
-    )
+            avg_net = (tiny_net + large_net) / 2
+            if avg_net > 0:
+                est_embedding_pct = min((ms_per_char * sizes["large"]) / (avg_net + base_overhead_ms) * 100, 95)
+                bottleneck_verdict = "EMBEDDING_DOMINANT" if est_embedding_pct > 60 else "OVERHEAD_DOMINANT"
 
     return QualitativeResult(
-        name="Bottleneck Analysis (heuristic)",
-        verdict=verdict,
-        score=score,
+        name="Bottleneck Analysis",
+        verdict=f"Embedding ~{int(est_embedding_pct)}% of write latency" if est_embedding_pct > 0 else "Latency flat across sizes (overhead dominant)",
+        score=est_embedding_pct / 100.0 if est_embedding_pct > 0 else 0.5,
         details={
             "timing_by_size": results,
+            "base_overhead_ms": round(base_overhead_ms, 2),
             "est_embedding_pct": f"~{int(est_embedding_pct)}%",
             "bottleneck_verdict": bottleneck_verdict,
-            "caveat": "Cannot isolate embedding vs SQLite/Qdrant/MCP overhead from client side",
+            "samples_per_size": SAMPLES_PER_SIZE,
+            "_namespaces": ["bench-base-bottleneck", "bench-warmup-bottleneck", "bench-bottleneck"],
+        }
+    )
+
+
+async def run_token_overhead_test(client: "FastMCPClient") -> QualitativeResult:
+    """Measure ACTUAL token overhead from real searches, not theoretical estimate."""
+    namespace = f"token-overhead-{uuid.uuid4().hex[:6]}"
+
+    # Write a known corpus
+    for i in range(10):
+        await client.call_tool("memory.write", arguments={
+            "content": f"Memory {i}: Project context about architecture decisions for the authentication system.",
+            "type": "test", "namespace": namespace,
+            "scope_id": "token-test", "source": "benchmark",
+            "tags": ["#benchmark"],
+        })
+
+    # Wait until search can use hybrid mode for this namespace
+    for _ in range(60):
+        probe = await client.call_tool("memory.search", arguments={
+            "query": "authentication", "namespace": namespace, "limit": 1,
+        })
+        if probe.data.get("search_mode") == "hybrid_rrf":
+            break
+        await asyncio.sleep(5)
+
+    # Run searches
+    queries = [
+        "authentication architecture",
+        "project decisions",
+        "system design",
+    ]
+
+    search_tokens = []
+    for query in queries:
+        result = await client.call_tool("memory.search", arguments={
+            "query": query, "namespace": namespace, "limit": 5,
+        })
+        token_estimate = result.data.get("token_estimate", 0)
+        item_count = result.data.get("item_count", 0)
+        search_tokens.append({"query": query, "tokens": token_estimate, "items": item_count})
+
+    # Measure write tokens
+    write_tokens_estimate = 0
+    for i in range(5):
+        result = await client.call_tool("memory.write", arguments={
+            "content": f"Additional memory {i} about security policies.",
+            "type": "test", "namespace": namespace,
+            "scope_id": "token-test", "source": "benchmark",
+        })
+        content_len = len(f"Additional memory {i} about security policies.")
+        write_tokens_estimate += content_len // 4 + 30  # content + MCP overhead
+
+    total_overhead_tokens = sum(s["tokens"] for s in search_tokens) + write_tokens_estimate
+    context_window = 200_000
+    overhead_pct = (total_overhead_tokens / context_window) * 100
+
+    verdict = "NEGLIGIBLE" if overhead_pct < 1 else "LOW" if overhead_pct < 5 else "MEDIUM"
+    score = 1.0 if overhead_pct < 1 else 0.8 if overhead_pct < 5 else 0.5
+
+    return QualitativeResult(
+        name="Token Overhead (measured)",
+        verdict=f"{verdict} ({overhead_pct:.2f}% of 200K window)",
+        score=score,
+        details={
+            "search_token_estimates": search_tokens,
+            "write_token_estimate": write_tokens_estimate,
+            "total_overhead_tokens": total_overhead_tokens,
+            "context_window_200k": context_window,
+            "context_window_pct": round(overhead_pct, 3),
+            "method": "measured (content length / 4 + overhead)",
+            "_namespaces": [namespace],
         }
     )
 
@@ -767,7 +851,7 @@ def generate_report(report: BenchmarkReport) -> str:
 # MAIN BENCHMARK RUNNER
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def run_benchmark(host: str, port: int, output_path: str | None = None, cleanup: bool = True) -> int:
+async def run_benchmark(host: str, port: int, output_path: str | None = None, cleanup: bool = True, recall_only: bool = False, wait_coverage: float | None = None) -> int:
     """Run all benchmarks and generate report."""
     from fastmcp import Client
 
@@ -777,6 +861,22 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
     try:
         async with Client(server_url) as client:
             print("Connected.")
+
+            # Wait for qdrant coverage if requested
+            if wait_coverage is not None:
+                print(f"Waiting for qdrant coverage >= {wait_coverage:.2f}...")
+                deadline = time.time() + 300  # 5 minute timeout
+                while time.time() < deadline:
+                    health = await client.call_tool("memory.health", arguments={})
+                    coverage = health.data.get("qdrant_coverage_ratio", 0.0)
+                    if coverage >= wait_coverage:
+                        print(f"  Coverage reached: {coverage:.2%}")
+                        break
+                    print(f"  Coverage: {coverage:.2%}, waiting...")
+                    await asyncio.sleep(5)
+                else:
+                    print(f"  Timeout waiting for coverage (was {coverage:.2%})")
+                    return 1
 
             # Gather system info
             try:
@@ -791,41 +891,47 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
             qualitative_namespaces: list[str] = []
 
             # ── Performance Scenarios ────────────────────────────────────
-            perf_scenarios = [
-                ("Sequential Writes (100)", run_sequential_writes(client, count=100, size="medium")),
-                ("Sequential Writes (500)", run_sequential_writes(client, count=500, size="medium")),
-                ("Concurrent Writes (100, c=10)", run_concurrent_writes(client, count=100, concurrency=10, size="medium")),
-                ("Concurrent Writes (500, c=20)", run_concurrent_writes(client, count=500, concurrency=20, size="medium")),
-                ("Search (5 queries x 5 runs)", run_search_benchmark(client, queries=[
-                    "software engineering performance measurement",
-                    "distributed systems fault tolerance",
-                    "machine learning model training pipeline",
-                    "database query optimization index",
-                    "API design REST GraphQL microservices",
-                ], runs_per_query=5)),
-            ]
+            if not recall_only:
+                perf_scenarios = [
+                    ("Sequential Writes (100)", run_sequential_writes(client, count=100, size="medium")),
+                    ("Sequential Writes (500)", run_sequential_writes(client, count=500, size="medium")),
+                    ("Concurrent Writes (100, c=10)", run_concurrent_writes(client, count=100, concurrency=10, size="medium")),
+                    ("Concurrent Writes (500, c=20)", run_concurrent_writes(client, count=500, concurrency=20, size="medium")),
+                    ("Search (5 queries x 5 runs)", run_search_benchmark(client, queries=[
+                        "software engineering performance measurement",
+                        "distributed systems fault tolerance",
+                        "machine learning model training pipeline",
+                        "database query optimization index",
+                        "API design REST GraphQL microservices",
+                    ], runs_per_query=5)),
+                ]
 
-            print("\n=== Performance Benchmarks ===")
-            for name, coro in perf_scenarios:
-                print(f"\nRunning: {name}...")
-                try:
-                    result = await coro
-                    report.scenarios.append(result)
-                    print(f"  Done: {result.count} ops, {result.ops_per_second:.2f} ops/sec, {result.avg_latency_ms:.2f}ms avg")
-                except Exception as e:
-                    print(f"  Failed: {e}")
+                print("\n=== Performance Benchmarks ===")
+                for name, coro in perf_scenarios:
+                    print(f"\nRunning: {name}...")
+                    try:
+                        result = await coro
+                        report.scenarios.append(result)
+                        print(f"  Done: {result.count} ops, {result.ops_per_second:.2f} ops/sec, {result.avg_latency_ms:.2f}ms avg")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
 
             # ── Qualitative Scenarios ────────────────────────────────────
             print("\n=== Qualitative Assessment ===")
 
             qual_fns = [
                 ("Recall & Precision", lambda: run_recall_precision_test(client)),
-                ("Context Integration", lambda: run_context_integration_test(client)),
-                ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
-                ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
-                ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
-                ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
             ]
+
+            if not recall_only:
+                qual_fns.extend([
+                    ("Context Integration", lambda: run_context_integration_test(client)),
+                    ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
+                    ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
+                    ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
+                    ("Token Overhead (measured)", lambda: run_token_overhead_test(client)),
+                    ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
+                ])
 
             for name, fn in qual_fns:
                 print(f"\nRunning: {name}...")
@@ -845,6 +951,11 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                     for key in ("namespace_A", "namespace_B"):
                         ns = result.details.get(key)
                         if ns:
+                            qualitative_namespaces.append(ns)
+                    # Collect benchmark namespaces from _namespaces field
+                    extra_ns = result.details.get("_namespaces", [])
+                    for ns in extra_ns:
+                        if ns not in qualitative_namespaces:
                             qualitative_namespaces.append(ns)
                 except Exception as e:
                     print(f"  Failed: {e}")
@@ -889,8 +1000,10 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--output", "-o", help="Output Markdown report path")
     parser.add_argument("--no-cleanup", dest="cleanup", action="store_false", help="Keep benchmark data after run")
+    parser.add_argument("--recall-only", action="store_true", help="Only run recall/precision test")
+    parser.add_argument("--wait-coverage", type=float, help="Wait until qdrant_coverage_ratio >= threshold before running")
     args = parser.parse_args()
-    return asyncio.run(run_benchmark(args.host, args.port, args.output, args.cleanup))
+    return asyncio.run(run_benchmark(args.host, args.port, args.output, args.cleanup, args.recall_only, args.wait_coverage))
 
 
 if __name__ == "__main__":

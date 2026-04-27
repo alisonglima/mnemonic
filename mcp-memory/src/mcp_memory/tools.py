@@ -68,6 +68,8 @@ class MemoryTools:
             "search_mode": result.search_mode,
             "degraded": result.degraded,
             "freshness_seconds": result.freshness_seconds,
+            "token_estimate": sum(len(item.content) // 4 for item in result.items),
+            "item_count": len(result.items),
         }
 
     def write(

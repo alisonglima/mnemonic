@@ -21,7 +21,7 @@ mcp-memory/
     outbox.py         # OutboxWorker — async projection pipeline
     tools.py          # MemoryTools — business logic called by MCP handlers
     main.py           # FastMCP server, tool registration, CLI entry point
-  scripts/            # Maintenance scripts (backup, reindex, rebuild, init_db)
+  scripts/            # Maintenance scripts (backup, reindex, rebuild, init_db, benchmark)
   tests/              # Unit tests
 docs/                 # User-facing documentation
 ```
@@ -62,6 +62,8 @@ make test
 - **`expected_version` is required for mutations.** `memory.update`, `memory.retract`, `memory.delete` all require `expected_version: int` for optimistic concurrency. Do not make this optional.
 - **SQLite schema is append-only.** Add new columns in a new migration in `migrations.py`. Never drop or rename columns.
 - **Qdrant and Obsidian are projections.** Never make the server fail to start because Qdrant or Obsidian is unavailable. Both must degrade gracefully.
+- **`qdrant_coverage_ratio` is the authoritative freshness metric.** Hybrid RRF activates when coverage ≥ 80% (threshold: `QDRANT_MIN_COVERAGE_RATIO`). Coverage is scoped by namespace, scope_id, and archived status. The old `oldest_pending_age_seconds` metric is deprecated.
+- **Database migrations are idempotent.** `initialize()` must be safe to call on an existing database. ALTER TABLE statements check `PRAGMA table_info` before adding columns.
 
 ## Internal Patterns
 

@@ -385,6 +385,53 @@ class MemoryRepository:
         oldest = datetime.fromisoformat(row["available_at"])
         return max(0, int((datetime.now(timezone.utc) - oldest).total_seconds()))
 
+    def qdrant_coverage_ratio(
+        self,
+        namespace: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        include_archived: bool = False,
+    ) -> float:
+        """Return fraction of active records with current Qdrant projection (0.0–1.0).
+
+        Args:
+            namespace: If provided, scope coverage calculation to this namespace.
+            scope_id: If provided, further scope to this scope_id within the namespace.
+            include_archived: If True, include archived records in coverage calculation.
+        """
+        with self.database.connect() as conn:
+            params: list = []
+            statuses = ["active"]
+            if include_archived:
+                statuses.append("archived")
+            status_placeholders = ",".join("?" * len(statuses))
+            where = [f"mr.status IN ({status_placeholders})"]
+            params.extend(statuses)
+            if namespace:
+                where.append("mr.namespace = ?")
+                params.append(namespace)
+            if scope_id:
+                where.append("mr.scope_id = ?")
+                params.append(scope_id)
+
+            where_clause = " AND ".join(where)
+
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM memory_records mr WHERE {where_clause}",
+                params,
+            ).fetchone()[0]
+            if total == 0:
+                return 1.0
+
+            ready = conn.execute(
+                f"""SELECT COUNT(*) FROM memory_projections mp
+                   JOIN memory_records mr ON mr.id = mp.memory_id
+                   WHERE {where_clause}
+                   AND mp.qdrant_status = 'ready'
+                   AND mp.qdrant_version >= mr.version""",
+                params,
+            ).fetchone()[0]
+        return ready / total
+
     def get_projection_state(self, memory_id: str) -> Dict[str, Any]:
         with self.database.connect() as connection:
             self._ensure_projection_row(connection, memory_id)
@@ -786,6 +833,7 @@ class MemoryRepository:
         types: Optional[List[str]] = None,
         status: Optional[str] = None,
         include_archived: bool = False,
+        expand: bool = True,
     ) -> List[Tuple[str, float]]:  # Return (memory_id, bm25_rank)
         """Search FTS5 and return memory IDs with BM25 ranks.
 
@@ -797,10 +845,14 @@ class MemoryRepository:
             types: Optional list of type strings to filter
             status: Filter by status (default "active")
             include_archived: If True, include both active and archived
+            expand: If True, expand query using expand_query before searching
 
         Returns:
             List of (memory_id, bm25_rank) tuples, ordered by rank
         """
+        if expand:
+            from mcp_memory.search import expand_query
+            query = expand_query(query)
         # Build parameterized status filter
         if include_archived:
             status_values = ["active", "archived"]

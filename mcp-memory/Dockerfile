@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY pyproject.toml /app/
 COPY src /app/src
+COPY scripts /app/scripts
 
 RUN python -m pip install --no-cache-dir -e .
 
