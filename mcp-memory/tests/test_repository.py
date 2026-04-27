@@ -251,6 +251,30 @@ class RepositoryTests(unittest.TestCase):
         current = self.repo.get_projection_version(record_id, "qdrant")
         self.assertEqual(current, 5, f"Expected version 5, got {current}")
 
+    def test_coverage_ratio_drops_after_update(self) -> None:
+        """After updating a memory, coverage should drop until Qdrant processes it."""
+        record = self.repo.create_memory(
+            content="test",
+            type="test",
+            namespace="ns",
+            scope_id="s1",
+            source="test",
+        )
+        self.repo.set_projection_version(record.id, "qdrant", version=record.version)
+        self.assertEqual(self.repo.qdrant_coverage_ratio(), 1.0)
+
+        # Update the record — projection version is now stale
+        self.repo.update_memory(
+            memory_id=record.id,
+            expected_version=1,
+            content="updated",
+            type="test",
+            metadata=None,
+            change_reason="update",
+        )
+        # Coverage should be 0 (new record version > qdrant_version)
+        self.assertEqual(self.repo.qdrant_coverage_ratio(), 0.0)
+
     def test_search_fts_filters_by_type(self) -> None:
         r1 = self.repo.create_memory(content="architecture decision", type="decision",
                                 namespace="fts", scope_id="s1", source="test")

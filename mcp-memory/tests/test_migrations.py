@@ -70,3 +70,57 @@ def test_initialize_is_idempotent(tmp_path):
     with db.connect() as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert version == CURRENT_SCHEMA_VERSION
+
+
+def test_initialize_recovers_from_stale_user_version(tmp_path):
+    """Simulate the P0 bug: v2 columns exist but user_version is 0."""
+    db = Database(tmp_path / "memory.db")
+    # Create schema with v2 columns but user_version = 0 (broken state)
+    with db.connect() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS memory_records (
+              id TEXT PRIMARY KEY, namespace TEXT NOT NULL, scope_id TEXT NOT NULL,
+              type TEXT NOT NULL, obsidian_projection INTEGER NOT NULL DEFAULT 0,
+              content TEXT NOT NULL, source TEXT NOT NULL, status TEXT NOT NULL,
+              version INTEGER NOT NULL, content_hash TEXT NOT NULL, idempotency_key TEXT,
+              tags_json TEXT NOT NULL, notes_json TEXT NOT NULL, metadata_json TEXT NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS memory_revisions (
+              id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, version INTEGER NOT NULL,
+              content TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
+              tags_snapshot TEXT NOT NULL, notes_snapshot TEXT NOT NULL,
+              metadata_snapshot TEXT NOT NULL, changed_by TEXT NOT NULL,
+              changed_at TEXT NOT NULL, change_reason TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS memory_projections (
+              memory_id TEXT PRIMARY KEY, qdrant_version INTEGER NOT NULL DEFAULT 0,
+              obsidian_version INTEGER NOT NULL DEFAULT 0, qdrant_status TEXT NOT NULL DEFAULT 'pending',
+              obsidian_status TEXT NOT NULL DEFAULT 'pending', last_qdrant_sync_at TEXT,
+              last_obsidian_sync_at TEXT, last_error TEXT,
+              qdrant_content_hash TEXT, qdrant_embedding_fingerprint TEXT
+            );
+            CREATE TABLE IF NOT EXISTS memory_outbox (
+              id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, event_type TEXT NOT NULL,
+              target_version INTEGER NOT NULL, payload_json TEXT NOT NULL,
+              attempt_count INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL,
+              processed_at TEXT, error TEXT
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+              memory_id, content, tags, tokenize='unicode61'
+            );
+        """)
+        conn.execute("PRAGMA user_version = 0")
+        conn.commit()
+
+    # initialize() must not crash — columns already exist
+    db.initialize()
+
+    with db.connect() as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        rows = conn.execute("PRAGMA table_info(memory_projections)").fetchall()
+        columns = {row["name"] for row in rows}
+
+    assert version == CURRENT_SCHEMA_VERSION
+    assert "qdrant_content_hash" in columns
+    assert "qdrant_embedding_fingerprint" in columns

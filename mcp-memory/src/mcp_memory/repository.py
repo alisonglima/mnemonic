@@ -396,7 +396,9 @@ class MemoryRepository:
             ready = conn.execute(
                 """SELECT COUNT(*) FROM memory_projections mp
                    JOIN memory_records mr ON mr.id = mp.memory_id
-                   WHERE mr.status = 'active' AND mp.qdrant_status = 'ready'"""
+                   WHERE mr.status = 'active'
+                   AND mp.qdrant_status = 'ready'
+                   AND mp.qdrant_version >= mr.version"""
             ).fetchone()[0]
         return ready / total
 
