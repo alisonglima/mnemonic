@@ -33,7 +33,7 @@ Mnemonic is a local-first AI memory server. It stores structured memory records 
 | `MemoryTools` | Orchestrates repository, search service, and projection stores. Every MCP tool delegates here. |
 | `MemoryRepository` | SQLite access layer. All record CRUD, revision tracking, outbox management. |
 | `SearchService` | Coordinates Qdrant vector search with SQLite filtering. Returns merged, deduplicated results. |
-| `QdrantProjectionStore` | Manages the Qdrant collection: upsert, delete, query. Uses SHA-256 hash projections, not external embeddings. |
+| `QdrantProjectionStore` | Manages the Qdrant collection: upsert, delete, query. Uses Ollama `nomic-embed-text` (768-dim) when `EMBEDDING_STRATEGY=ollama`; falls back to deterministic SHA-256 hash projections (8-dim) when Ollama is unavailable. |
 | `ObsidianProjectionStore` | Writes Markdown files to the vault path. |
 | `OutboxWorker` | Background thread that processes pending projection events from SQLite outbox table. |
 
