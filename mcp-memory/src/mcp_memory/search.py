@@ -34,6 +34,10 @@ def expand_query(query: str) -> str:
         'config': ['configuration'],
         'auth': ['authentication', 'authorization'],
         'api': ['interface'],
+        'python': ['programming', 'script', 'code'],
+        'context': ['background', 'history', 'prior', 'session'],
+        'search': ['query', 'find', 'retrieve', 'lookup'],
+        'write': ['save', 'store', 'create', 'record'],
     }
     query_lower = query.lower()
     for term, syns in synonyms.items():
@@ -60,14 +64,14 @@ def expand_query(query: str) -> str:
 def rrf_fusion(
     fts_results: List[Tuple[str, float]],  # (memory_id, bm25_rank)
     vector_ids: List[str],  # memory_ids in rank order
-    k: int = 60,
+    k: int = 30,
 ) -> List[str]:
     """Reciprocal Rank Fusion over FTS and vector results.
 
     Args:
         fts_results: List of (memory_id, bm25_rank) from search_fts
         vector_ids: List of memory_ids from Qdrant (ordered by cosine similarity)
-        k: RRF smoothing parameter (default 60)
+        k: RRF smoothing parameter (default 30)
 
     Returns:
         List of memory_ids sorted by fused RRF score (descending)
@@ -137,12 +141,10 @@ class SearchService:
         coverage_ok = self._qdrant_is_fresh_enough() if qdrant_available else False
 
         if not qdrant_available or not coverage_ok:
-            # FTS-only mode — expand query here before calling search_fts
-            fts_query = expand_query(query)
             fts_results = self.repository.search_fts(
-                query=fts_query, namespace=namespace, limit=limit * 3,
+                query=query, namespace=namespace, limit=limit * 3,
                 scope_id=scope_id, types=types, status=status,
-                include_archived=include_archived,
+                include_archived=include_archived, expand=True,
             )
             memory_ids = [id for id, _ in fts_results]
             records = [r for r in self.repository.get_memory_bulk(memory_ids) if r is not None]
@@ -153,25 +155,23 @@ class SearchService:
                 freshness_seconds=0,
             )
 
-        # Hybrid RRF mode — expand query once, use for both paths
-        fts_query = expand_query(query)
-
+        # Hybrid RRF mode
         fts_results = self.repository.search_fts(
-            query=fts_query, namespace=namespace, limit=50,
+            query=query, namespace=namespace, limit=100,
             scope_id=scope_id, types=types, status="active",
-            include_archived=include_archived,
+            include_archived=include_archived, expand=True,
         )
 
         vector_hits = self.qdrant_store.query(
             query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
             namespace=namespace, scope_id=scope_id,
-            types=types, include_archived=include_archived, limit=50,
+            types=types, include_archived=include_archived, limit=100,
             score_threshold=self.score_threshold,
         )
         vector_ids = [hit.id for hit in vector_hits]
 
         # RRF fusion
-        fused_ids = rrf_fusion(fts_results, vector_ids, k=60)
+        fused_ids = rrf_fusion(fts_results, vector_ids, k=30)
 
         # Bulk hydration
         fused_records = self.repository.get_memory_bulk(fused_ids)

@@ -82,6 +82,16 @@ MIGRATIONS = [
             ADD COLUMN qdrant_embedding_fingerprint TEXT;
         """,
     },
+    {
+        "version": 3,
+        "sql": """
+            CREATE INDEX IF NOT EXISTS idx_memory_records_namespace_status
+            ON memory_records(namespace, status);
+
+            CREATE INDEX IF NOT EXISTS idx_memory_records_scope_id
+            ON memory_records(scope_id) WHERE scope_id IS NOT NULL;
+        """,
+    },
 ]
 
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1]["version"]

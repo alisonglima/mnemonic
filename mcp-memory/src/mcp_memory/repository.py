@@ -801,6 +801,7 @@ class MemoryRepository:
         types: Optional[List[str]] = None,
         status: Optional[str] = None,
         include_archived: bool = False,
+        expand: bool = True,
     ) -> List[Tuple[str, float]]:  # Return (memory_id, bm25_rank)
         """Search FTS5 and return memory IDs with BM25 ranks.
 
@@ -812,10 +813,14 @@ class MemoryRepository:
             types: Optional list of type strings to filter
             status: Filter by status (default "active")
             include_archived: If True, include both active and archived
+            expand: If True, expand query using expand_query before searching
 
         Returns:
             List of (memory_id, bm25_rank) tuples, ordered by rank
         """
+        if expand:
+            from mcp_memory.search import expand_query
+            query = expand_query(query)
         # Build parameterized status filter
         if include_archived:
             status_values = ["active", "archived"]
