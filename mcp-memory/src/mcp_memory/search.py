@@ -179,7 +179,12 @@ class SearchService:
             query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
             namespace=namespace, scope_id=scope_id,
             types=types, include_archived=include_archived, limit=100,
-            score_threshold=0.0,  # RRF handles relevance via rank — threshold would drop valid candidates
+            score_threshold=0.0,  # RRF handles relevance via rank — threshold would drop valid candidates.
+            # NOTE: self.score_threshold is intentionally ignored here.
+            # In hybrid_rrf mode, RRF re-ranks by position — a pre-fusion
+            # score threshold drops valid candidates before rank is computed.
+            # The config SEARCH_SCORE_THRESHOLD continues to exist for other
+            # search modes (non-hybrid paths) and future use.
         )
         vector_ids = [hit.id for hit in vector_hits]
 

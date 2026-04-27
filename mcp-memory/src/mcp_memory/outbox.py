@@ -6,12 +6,12 @@ import threading
 import time
 from typing import Callable
 
-logger = logging.getLogger(__name__)
-
 from mcp_memory.models import OutboxEvent
 from mcp_memory.obsidian_store import ObsidianProjectionStore
 from mcp_memory.qdrant_store import QdrantProjectionStore
 from mcp_memory.repository import MemoryRepository
+
+logger = logging.getLogger(__name__)
 
 
 class OutboxWorker:

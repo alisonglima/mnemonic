@@ -258,8 +258,9 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             proj_state = get_result.data.get("projection_state", {})
             if proj_state.get("qdrant_status") == "ready" and proj_state.get("qdrant_version", 0) >= record_version:
                 target_ready = True
-        except Exception:
-            pass
+        except Exception as e:
+            if attempt % 10 == 0:
+                print(f"  poll memory.get error at t={attempt+1}s: {e}")
         if target_ready:
             # Probe search para verificar se hybrid_rrf está ativo no namespace
             try:
@@ -268,8 +269,9 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
                 })
                 if probe.data.get("search_mode") == "hybrid_rrf":
                     hybrid_ready = True
-            except Exception:
-                pass
+            except Exception as e:
+                if attempt % 10 == 0:
+                    print(f"  poll search probe error at t={attempt+1}s: {e}")
         if target_ready and hybrid_ready:
             indexed = True
             break
@@ -930,16 +932,7 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
             async def _run_recall():
                 result = await run_recall_precision_test(client)
                 report.qualitative.append(result)
-                ns = result.details.get("namespace")
-                if ns:
-                    qualitative_namespaces.append(ns)
-                for key in ("namespace_A", "namespace_B"):
-                    ns = result.details.get(key)
-                    if ns:
-                        qualitative_namespaces.append(ns)
-                for ns in result.details.get("_namespaces", []):
-                    if ns not in qualitative_namespaces:
-                        qualitative_namespaces.append(ns)
+                _collect_ns(result, qualitative_namespaces)
                 return result
 
             print("\n=== Recall & Precision (antes dos writes) ===")
