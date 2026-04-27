@@ -385,20 +385,39 @@ class MemoryRepository:
         oldest = datetime.fromisoformat(row["available_at"])
         return max(0, int((datetime.now(timezone.utc) - oldest).total_seconds()))
 
-    def qdrant_coverage_ratio(self) -> float:
-        """Return fraction of active records with current Qdrant projection (0.0–1.0)."""
+    def qdrant_coverage_ratio(self, namespace: Optional[str] = None, scope_id: Optional[str] = None) -> float:
+        """Return fraction of active records with current Qdrant projection (0.0–1.0).
+
+        Args:
+            namespace: If provided, scope coverage calculation to this namespace.
+            scope_id: If provided, further scope to this scope_id within the namespace.
+        """
         with self.database.connect() as conn:
+            params: list = []
+            where = ["mr.status = 'active'"]
+            if namespace:
+                where.append("mr.namespace = ?")
+                params.append(namespace)
+            if scope_id:
+                where.append("mr.scope_id = ?")
+                params.append(scope_id)
+
+            where_clause = " AND ".join(where)
+
             total = conn.execute(
-                "SELECT COUNT(*) FROM memory_records WHERE status = 'active'"
+                f"SELECT COUNT(*) FROM memory_records mr WHERE {where_clause}",
+                params,
             ).fetchone()[0]
             if total == 0:
                 return 1.0
+
             ready = conn.execute(
-                """SELECT COUNT(*) FROM memory_projections mp
+                f"""SELECT COUNT(*) FROM memory_projections mp
                    JOIN memory_records mr ON mr.id = mp.memory_id
-                   WHERE mr.status = 'active'
+                   WHERE {where_clause}
                    AND mp.qdrant_status = 'ready'
-                   AND mp.qdrant_version >= mr.version"""
+                   AND mp.qdrant_version >= mr.version""",
+                params,
             ).fetchone()[0]
         return ready / total
 

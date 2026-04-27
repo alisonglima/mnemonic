@@ -102,11 +102,13 @@ class SearchService:
         self.qdrant_store = qdrant_store or QdrantProjectionStore(enabled=False)
         self.score_threshold = score_threshold
 
-    def _qdrant_is_fresh_enough(self) -> bool:
+    def _qdrant_is_fresh_enough(self, namespace: Optional[str] = None, scope_id: Optional[str] = None) -> bool:
         """Return True if Qdrant has sufficient coverage for hybrid search."""
+        if not self.qdrant_store.enabled:
+            return True
         if not self.qdrant_store.is_available():
             return False
-        coverage = self.repository.qdrant_coverage_ratio()
+        coverage = self.repository.qdrant_coverage_ratio(namespace=namespace, scope_id=scope_id)
         return coverage >= QDRANT_MIN_COVERAGE_RATIO
 
     def search(
@@ -138,7 +140,7 @@ class SearchService:
             return SearchResult(items=items, search_mode="fallback_sqlite", degraded=False, freshness_seconds=0)
 
         qdrant_available = self.qdrant_store.is_available()
-        coverage_ok = self._qdrant_is_fresh_enough() if qdrant_available else False
+        coverage_ok = self._qdrant_is_fresh_enough(namespace=namespace, scope_id=scope_id)
 
         if not qdrant_available or not coverage_ok:
             fts_results = self.repository.search_fts(
@@ -151,7 +153,7 @@ class SearchService:
             return SearchResult(
                 items=records[:limit],
                 search_mode="fts_sqlite",
-                degraded=not coverage_ok or (not qdrant_available and self.qdrant_store.enabled),
+                degraded=self.qdrant_store.enabled and (not qdrant_available or not coverage_ok),
                 freshness_seconds=0,
             )
 

@@ -152,7 +152,14 @@ class ToolTests(unittest.TestCase):
         self.assertGreaterEqual(health["pending_events"], 1)
 
     def test_unreachable_qdrant_url_still_reports_degraded(self) -> None:
-        tools = _tools_with_qdrant_url(self.tmp_path)
+        # Create QdrantProjectionStore with enabled=True but pointing to unreachable URL
+        from mcp_memory.qdrant_store import QdrantProjectionStore
+        settings = Settings(
+            database_path=self.tmp_path / "memory.db",
+            vault_path=self.tmp_path / "vault",
+        )
+        qdrant_store = QdrantProjectionStore(enabled=True, url="http://127.0.0.1:65530")
+        tools = MemoryTools(settings, self.tools.repository, SearchService(self.tools.repository, qdrant_store))
 
         health = tools.health()
         result = tools.search(query="anything", namespace="project", scope_id="mnemonic")
@@ -160,7 +167,7 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(health["qdrant"], "down")
         self.assertTrue(health["degraded"])
         self.assertEqual(result["search_mode"], "fts_sqlite")
-        # degraded is True when Qdrant is unavailable and enabled (coverage is 0)
+        # degraded is True when Qdrant is enabled but unavailable (coverage is 0)
         self.assertTrue(result["degraded"])
 
 

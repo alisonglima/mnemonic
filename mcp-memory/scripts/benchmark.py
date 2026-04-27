@@ -545,6 +545,7 @@ async def run_ollama_bottleneck_analysis(client: "FastMCPClient") -> Qualitative
             "est_embedding_pct": f"~{int(est_embedding_pct)}%",
             "bottleneck_verdict": bottleneck_verdict,
             "samples_per_size": SAMPLES_PER_SIZE,
+            "_namespaces": ["bench-base-bottleneck", "bench-warmup-bottleneck", "bench-bottleneck"],
         }
     )
 
@@ -614,6 +615,7 @@ async def run_token_overhead_test(client: "FastMCPClient") -> QualitativeResult:
             "context_window_200k": context_window,
             "context_window_pct": round(overhead_pct, 3),
             "method": "measured (content length / 4 + overhead)",
+            "_namespaces": [namespace],
         }
     )
 
@@ -910,13 +912,17 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
 
             qual_fns = [
                 ("Recall & Precision", lambda: run_recall_precision_test(client)),
-                ("Context Integration", lambda: run_context_integration_test(client)),
-                ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
-                ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
-                ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
-                ("Token Overhead (measured)", lambda: run_token_overhead_test(client)),
-                ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
             ]
+
+            if not recall_only:
+                qual_fns.extend([
+                    ("Context Integration", lambda: run_context_integration_test(client)),
+                    ("Namespace Isolation", lambda: run_namespace_isolation_test(client)),
+                    ("Reliability Under Load", lambda: run_reliability_test(client, concurrent_ops=50)),
+                    ("Bottleneck Analysis", lambda: run_ollama_bottleneck_analysis(client)),
+                    ("Token Overhead (measured)", lambda: run_token_overhead_test(client)),
+                    ("Token Overhead (theoretical)", lambda: estimate_token_overhead_theoretical()),
+                ])
 
             for name, fn in qual_fns:
                 print(f"\nRunning: {name}...")
@@ -936,6 +942,11 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
                     for key in ("namespace_A", "namespace_B"):
                         ns = result.details.get(key)
                         if ns:
+                            qualitative_namespaces.append(ns)
+                    # Collect benchmark namespaces from _namespaces field
+                    extra_ns = result.details.get("_namespaces", [])
+                    for ns in extra_ns:
+                        if ns not in qualitative_namespaces:
                             qualitative_namespaces.append(ns)
                 except Exception as e:
                     print(f"  Failed: {e}")

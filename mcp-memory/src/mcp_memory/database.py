@@ -17,7 +17,7 @@ class Database:
         connection.row_factory = sqlite3.Row
         # Per-connection pragmas — wal_autocheckpoint and synchronous are
         # connection-local (not persisted), so set on every connection.
-        connection.execute("PRAGMA wal_autocheckpoint = 0")
+        connection.execute("PRAGMA wal_autocheckpoint = 10000")
         connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 

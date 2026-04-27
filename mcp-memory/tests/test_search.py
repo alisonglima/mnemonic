@@ -58,6 +58,7 @@ class TestCoverageFallback(unittest.TestCase):
         )
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
         mock_qdrant.is_available.return_value = True
         mock_qdrant.query.return_value = []  # empty — not yet projected
 
@@ -84,6 +85,7 @@ class TestCoverageFallback(unittest.TestCase):
         )
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
         mock_qdrant.is_available.return_value = True
         mock_qdrant.query.return_value = [
             SearchHit(id=record.id, score=0.9, payload={})
@@ -109,8 +111,8 @@ class TestCoverageFallback(unittest.TestCase):
         )
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
-        mock_qdrant.is_available.return_value = False
         mock_qdrant.enabled = True  # qdrant is enabled but unreachable
+        mock_qdrant.is_available.return_value = False
 
         service = SearchService(self.repo, mock_qdrant, score_threshold=0.5)
 
@@ -130,6 +132,7 @@ class TestCoverageFallback(unittest.TestCase):
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
         mock_qdrant.is_available.return_value = False
 
         service = SearchService(self.repo, mock_qdrant)
@@ -141,6 +144,7 @@ class TestCoverageFallback(unittest.TestCase):
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
         mock_qdrant.is_available.return_value = True
 
         service = SearchService(self.repo, mock_qdrant)
@@ -153,12 +157,46 @@ class TestCoverageFallback(unittest.TestCase):
         from mcp_memory.qdrant_store import QdrantProjectionStore
 
         mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
         mock_qdrant.is_available.return_value = True
 
         service = SearchService(self.repo, mock_qdrant)
 
         with patch.object(self.repo, 'qdrant_coverage_ratio', return_value=0.5):
             self.assertFalse(service._qdrant_is_fresh_enough())
+
+    def test_qdrant_is_fresh_enough_returns_true_when_qdrant_disabled(self) -> None:
+        """_qdrant_is_fresh_enough should return True when Qdrant is disabled."""
+        from mcp_memory.qdrant_store import QdrantProjectionStore
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = False
+        mock_qdrant.is_available.return_value = False  # shouldn't be called when disabled
+
+        service = SearchService(self.repo, mock_qdrant)
+
+        # Should return True immediately without checking is_available
+        self.assertTrue(service._qdrant_is_fresh_enough())
+
+    def test_search_degraded_false_when_qdrant_disabled(self) -> None:
+        """When Qdrant is disabled, search should not be degraded."""
+        from mcp_memory.qdrant_store import QdrantProjectionStore
+
+        record = self.repo.create_memory(
+            content="disabled qdrant test",
+            type="test", namespace="disabled", scope_id="s1", source="test",
+        )
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = False
+        mock_qdrant.is_available.return_value = False
+
+        service = SearchService(self.repo, mock_qdrant, score_threshold=0.5)
+
+        result = service.search(query="test", namespace="disabled", limit=5)
+
+        self.assertEqual(result.search_mode, "fts_sqlite")
+        self.assertFalse(result.degraded)
 
 
 if __name__ == "__main__":
