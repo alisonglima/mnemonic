@@ -237,6 +237,14 @@ async def run_recall_precision_test(client: "FastMCPClient") -> QualitativeResul
             "scope_id": "recall-precision-test", "source": "benchmark",
         })
 
+    # Wait for Qdrant coverage to recover before measuring search
+    for _ in range(60):  # up to 5 minutes
+        health = await client.call_tool("memory.health", arguments={})
+        coverage = health.data.get("qdrant_coverage_ratio", 0)
+        if coverage >= 0.80:
+            break
+        await asyncio.sleep(5)
+
     # Test 1: Exact token search (verifies the record is retrievable at all)
     exact_search = await client.call_tool("memory.search", arguments={
         "query": f"{unique_token} python programming", "namespace": "benchmark", "limit": 10,
