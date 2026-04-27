@@ -189,6 +189,9 @@ class SearchService:
         # Bulk hydration
         fused_records = self.repository.get_memory_bulk(fused_ids)
         record_map = {r.id: r for r in fused_records if r is not None}
+        # Filter archived records unless explicitly requested
+        if not include_archived:
+            record_map = {k: v for k, v in record_map.items() if v.status != 'archived'}
         items = [record_map[id] for id in fused_ids if id in record_map][:limit]
 
         return SearchResult(
