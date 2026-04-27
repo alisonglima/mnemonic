@@ -398,5 +398,43 @@ class TestParallelProcessing(unittest.TestCase):
         self.assertIsNotNone(row["error"])
 
 
+class WalCheckpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.tmpdir.name)
+        self.repo = _repo(self.tmp_path)
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def test_run_forever_triggers_wal_checkpoint(self) -> None:
+        """WAL checkpoint is called periodically during run_forever."""
+        checkpoint_triggered = threading.Event()
+        original = self.repo.database.run_wal_checkpoint
+
+        def track_checkpoint():
+            original()
+            checkpoint_triggered.set()
+
+        self.repo.database.run_wal_checkpoint = track_checkpoint
+
+        worker = OutboxWorker(self.repo, max_workers=1)
+        stop = threading.Event()
+
+        t = threading.Thread(
+            target=worker.run_forever,
+            args=(stop,),
+            kwargs={"poll_interval_seconds": 0.01, "checkpoint_interval_seconds": 0.05},
+        )
+        t.start()
+        try:
+            triggered = checkpoint_triggered.wait(timeout=2.0)
+            self.assertTrue(triggered, "Checkpoint must be called at least once")
+        finally:
+            stop.set()
+            t.join(timeout=1.0)
+        self.assertFalse(t.is_alive(), "Worker thread must have exited")
+
+
 if __name__ == "__main__":
     unittest.main()

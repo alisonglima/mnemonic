@@ -179,7 +179,7 @@ class SearchService:
             query=query,  # Raw query — qdrant_store.query() embeds it via Ollama before querying Qdrant
             namespace=namespace, scope_id=scope_id,
             types=types, include_archived=include_archived, limit=100,
-            score_threshold=self.score_threshold,
+            score_threshold=0.0,  # RRF handles relevance via rank — threshold would drop valid candidates
         )
         vector_ids = [hit.id for hit in vector_hits]
 

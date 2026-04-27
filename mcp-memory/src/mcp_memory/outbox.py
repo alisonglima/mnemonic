@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import threading
 import time
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 from mcp_memory.models import OutboxEvent
 from mcp_memory.obsidian_store import ObsidianProjectionStore
@@ -69,9 +72,28 @@ class OutboxWorker:
     def shutdown(self, wait: bool = True) -> None:
         self._executor.shutdown(wait=wait)
 
-    def run_forever(self, stop_event: threading.Event, poll_interval_seconds: float = 1.0) -> None:
+    def run_forever(
+        self,
+        stop_event: threading.Event,
+        poll_interval_seconds: float = 1.0,
+        checkpoint_interval_seconds: float = 30.0,
+    ) -> None:
+        """Run outbox processing loop with periodic WAL checkpointing.
+
+        Note: Checkpoint interval is best-effort — checked after process_pending()
+        returns. With a large backlog the gap between checkpoints can exceed
+        checkpoint_interval_seconds. This is safe: WAL grows but writes continue.
+        """
+        last_checkpoint_at = time.monotonic()
         while not stop_event.is_set():
             self.process_pending()
+            now = time.monotonic()
+            if now - last_checkpoint_at >= checkpoint_interval_seconds:
+                try:
+                    self.repository.database.run_wal_checkpoint()
+                except Exception:
+                    logger.warning("WAL checkpoint failed", exc_info=True)
+                last_checkpoint_at = now
             stop_event.wait(poll_interval_seconds)
 
     def _handler_for(self, event: OutboxEvent) -> Callable[[OutboxEvent], None]:

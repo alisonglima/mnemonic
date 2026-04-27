@@ -247,3 +247,40 @@ def test_qdrant_coverage_ratio_empty_db():
     repo = _repo(Path(tempfile.mkdtemp()))
     ratio = repo.qdrant_coverage_ratio()
     assert ratio == 1.0, f"Expected 1.0 for empty DB, got {ratio}"
+
+
+def test_hybrid_rrf_uses_zero_score_threshold() -> None:
+    """Hybrid RRF must use score_threshold=0.0 regardless of config — RRF handles relevance via rank."""
+    from mcp_memory.qdrant_store import QdrantProjectionStore
+    from unittest.mock import MagicMock, patch
+
+    captured_threshold = []
+
+    def track_query(**kwargs):
+        captured_threshold.append(kwargs.get("score_threshold"))
+        return []
+
+    tmpdir = tempfile.TemporaryDirectory()
+    try:
+        tmp_path = Path(tmpdir.name)
+        repo = _repo(tmp_path)
+
+        mock_qdrant = MagicMock(spec=QdrantProjectionStore)
+        mock_qdrant.enabled = True
+        mock_qdrant.is_available.return_value = True
+        mock_qdrant.query = track_query
+
+        service = SearchService(repo, qdrant_store=mock_qdrant, score_threshold=0.5)
+
+        with patch.object(repo, 'qdrant_coverage_ratio', return_value=0.9):
+            result = service.search(query="test", namespace="ns", limit=5)
+
+        assert captured_threshold, "Qdrant.query must have been called"
+        assert captured_threshold[0] == 0.0, (
+            f"hybrid_rrf must use score_threshold=0.0, got {captured_threshold[0]}"
+        )
+        assert result.search_mode == "hybrid_rrf", (
+            f"Expected hybrid_rrf search mode, got {result.search_mode}"
+        )
+    finally:
+        tmpdir.cleanup()
