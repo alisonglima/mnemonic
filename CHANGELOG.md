@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-27
+
 ### Added
 
 - `qdrant_coverage_ratio` in health endpoint — exposes fraction of active records with current Qdrant projection.
