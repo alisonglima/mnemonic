@@ -767,7 +767,7 @@ def generate_report(report: BenchmarkReport) -> str:
 # MAIN BENCHMARK RUNNER
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def run_benchmark(host: str, port: int, output_path: str | None = None, cleanup: bool = True) -> int:
+async def run_benchmark(host: str, port: int, output_path: str | None = None, cleanup: bool = True, recall_only: bool = False, wait_coverage: float | None = None) -> int:
     """Run all benchmarks and generate report."""
     from fastmcp import Client
 
@@ -777,6 +777,22 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
     try:
         async with Client(server_url) as client:
             print("Connected.")
+
+            # Wait for qdrant coverage if requested
+            if wait_coverage is not None:
+                print(f"Waiting for qdrant coverage >= {wait_coverage:.2f}...")
+                deadline = time.time() + 300  # 5 minute timeout
+                while time.time() < deadline:
+                    health = await client.call_tool("memory.health", arguments={})
+                    coverage = health.data.get("qdrant_coverage_ratio", 0.0)
+                    if coverage >= wait_coverage:
+                        print(f"  Coverage reached: {coverage:.2%}")
+                        break
+                    print(f"  Coverage: {coverage:.2%}, waiting...")
+                    await asyncio.sleep(5)
+                else:
+                    print(f"  Timeout waiting for coverage (was {coverage:.2%})")
+                    return 1
 
             # Gather system info
             try:
@@ -791,29 +807,30 @@ async def run_benchmark(host: str, port: int, output_path: str | None = None, cl
             qualitative_namespaces: list[str] = []
 
             # ── Performance Scenarios ────────────────────────────────────
-            perf_scenarios = [
-                ("Sequential Writes (100)", run_sequential_writes(client, count=100, size="medium")),
-                ("Sequential Writes (500)", run_sequential_writes(client, count=500, size="medium")),
-                ("Concurrent Writes (100, c=10)", run_concurrent_writes(client, count=100, concurrency=10, size="medium")),
-                ("Concurrent Writes (500, c=20)", run_concurrent_writes(client, count=500, concurrency=20, size="medium")),
-                ("Search (5 queries x 5 runs)", run_search_benchmark(client, queries=[
-                    "software engineering performance measurement",
-                    "distributed systems fault tolerance",
-                    "machine learning model training pipeline",
-                    "database query optimization index",
-                    "API design REST GraphQL microservices",
-                ], runs_per_query=5)),
-            ]
+            if not recall_only:
+                perf_scenarios = [
+                    ("Sequential Writes (100)", run_sequential_writes(client, count=100, size="medium")),
+                    ("Sequential Writes (500)", run_sequential_writes(client, count=500, size="medium")),
+                    ("Concurrent Writes (100, c=10)", run_concurrent_writes(client, count=100, concurrency=10, size="medium")),
+                    ("Concurrent Writes (500, c=20)", run_concurrent_writes(client, count=500, concurrency=20, size="medium")),
+                    ("Search (5 queries x 5 runs)", run_search_benchmark(client, queries=[
+                        "software engineering performance measurement",
+                        "distributed systems fault tolerance",
+                        "machine learning model training pipeline",
+                        "database query optimization index",
+                        "API design REST GraphQL microservices",
+                    ], runs_per_query=5)),
+                ]
 
-            print("\n=== Performance Benchmarks ===")
-            for name, coro in perf_scenarios:
-                print(f"\nRunning: {name}...")
-                try:
-                    result = await coro
-                    report.scenarios.append(result)
-                    print(f"  Done: {result.count} ops, {result.ops_per_second:.2f} ops/sec, {result.avg_latency_ms:.2f}ms avg")
-                except Exception as e:
-                    print(f"  Failed: {e}")
+                print("\n=== Performance Benchmarks ===")
+                for name, coro in perf_scenarios:
+                    print(f"\nRunning: {name}...")
+                    try:
+                        result = await coro
+                        report.scenarios.append(result)
+                        print(f"  Done: {result.count} ops, {result.ops_per_second:.2f} ops/sec, {result.avg_latency_ms:.2f}ms avg")
+                    except Exception as e:
+                        print(f"  Failed: {e}")
 
             # ── Qualitative Scenarios ────────────────────────────────────
             print("\n=== Qualitative Assessment ===")
@@ -889,8 +906,10 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--output", "-o", help="Output Markdown report path")
     parser.add_argument("--no-cleanup", dest="cleanup", action="store_false", help="Keep benchmark data after run")
+    parser.add_argument("--recall-only", action="store_true", help="Only run recall/precision test")
+    parser.add_argument("--wait-coverage", type=float, help="Wait until qdrant_coverage_ratio >= threshold before running")
     args = parser.parse_args()
-    return asyncio.run(run_benchmark(args.host, args.port, args.output, args.cleanup))
+    return asyncio.run(run_benchmark(args.host, args.port, args.output, args.cleanup, args.recall_only, args.wait_coverage))
 
 
 if __name__ == "__main__":

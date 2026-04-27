@@ -33,6 +33,7 @@ class HealthService:
             "embedding_degraded": embedding_degraded,
             "pending_events": self.repository.pending_outbox_count(),
             "oldest_pending_age_seconds": self.repository.oldest_pending_age_seconds(),
+            "qdrant_coverage_ratio": self.repository.qdrant_coverage_ratio(),
         }
 
     def _ollama_status(self) -> str:
